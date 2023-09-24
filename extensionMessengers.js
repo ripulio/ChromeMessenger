@@ -1,5 +1,6 @@
 import { baseMessagingServer } from './baseMessengers'; 
 import { baseMessagingClient } from './baseMessengers'; 
+import { classMapping } from './baseMessengers';
 
 
 export class background_Server extends baseMessagingServer { }
