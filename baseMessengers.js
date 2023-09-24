@@ -1,7 +1,7 @@
 // #region BaseClasses
 /// <reference path="../types/index.d.ts" />
 
-class baseMessagingHandler {
+export class baseMessagingHandler {
     #target;
     #context;
     #functionTable = {};
@@ -32,7 +32,7 @@ class baseMessagingHandler {
 
 
 
-class baseMessagingServer {
+export class baseMessagingServer {
     #functionTable = {};
     #target;
     #context;
@@ -216,7 +216,7 @@ class baseMessagingServer {
 
 }
 
-class baseMessagingClient {
+export class baseMessagingClient {
     #target;
     #context;
 
@@ -483,7 +483,7 @@ class baseMessagingClient {
     }
 }
 
-const classMapping = {};
+export const classMapping = {};
 
 // #endregion
 
