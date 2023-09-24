@@ -1,0 +1,24 @@
+{
+    "manifest_version": 2,
+    "name": "Communication Test",
+    "version": "1.0",
+    "permissions": [
+      "activeTab",
+      "file:///*"
+    ],
+    "background": {
+      "scripts": ["src/baseMessengers.js","src/extensionMessengers.js", "background.js"],
+      "persistent": false
+    },
+    "content_scripts": [
+      {
+        "matches": [
+          "<all_urls>",
+          "file:///*"
+        ],
+        "js": ["src/baseMessengers.js", "src/extensionMessengers.js", "content.js"]
+      }
+    ]
+  }
+  
+  

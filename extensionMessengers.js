@@ -1,8 +1,8 @@
-class background_Server extends baseMessagingServer { }
-class content_Server extends baseMessagingServer { }
-class sidebar_Server extends baseMessagingServer { }
+export class background_Server extends baseMessagingServer { }
+export class content_Server extends baseMessagingServer { }
+export class sidebar_Server extends baseMessagingServer { }
 
-class background_Client extends baseMessagingClient {
+export class background_Client extends baseMessagingClient {
     async sayHello() {}
     async callMeBack() {}
 
@@ -15,7 +15,7 @@ class background_Client extends baseMessagingClient {
     //async executeProject(request) { }
 }
 
-class content_Client extends baseMessagingClient {
+export class content_Client extends baseMessagingClient {
     //async contentExecuteProject(projectId, anotherParam) { }
     //async runComponent(projectId, anotherParam) { }
     //async greeting(name, age) { }
@@ -28,7 +28,7 @@ class content_Client extends baseMessagingClient {
 
 }
 
-class sidebar_Client extends baseMessagingClient { }
+export class sidebar_Client extends baseMessagingClient { }
 
 // Register classes
 background_Server.register();
