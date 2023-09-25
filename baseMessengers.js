@@ -1,5 +1,4 @@
 // #region BaseClasses
-/// <reference path="../types/index.d.ts" />
 
 export class baseMessagingHandler {
     #target;

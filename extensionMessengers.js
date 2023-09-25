@@ -7,40 +7,44 @@ export class background_Server extends baseMessagingServer { }
 export class content_Server extends baseMessagingServer { }
 export class sidebar_Server extends baseMessagingServer { }
 
-export class background_Client extends baseMessagingClient {
+
+
+
+
+// implement the proxy client classes, with your required methods in your code. 
+// there is no implementation of the methods in the clients, they are just proxies
+// to the server methods.  However the server method table passed into the constructor
+// must have the methods implemented.  The proxy client will call the server method
+// if the method tables do not align, an error will be thrown.
+
+/*
+
+ class background_Client extends baseMessagingClient {
     async sayHello() {}
     async callMeBack() {}
-
-    // These blank methods are handled by the proxy
-    //async greeting(name, age) { }
-    //async getStatus(type) { }
-
-    //async getProjects(domain) { }
-
-    //async executeProject(request) { }
 }
 
-export class content_Client extends baseMessagingClient {
-    //async contentExecuteProject(projectId, anotherParam) { }
-    //async runComponent(projectId, anotherParam) { }
-    //async greeting(name, age) { }
-    //async getStatus(type) { }
-    //async foo() { }
-
+ class content_Client extends baseMessagingClient {
     async sayHello() { }
     async echoMessage(message) { }
     async calculateSum(a, b) { }
 
 }
 
-export class sidebar_Client extends baseMessagingClient { }
+class sidebar_Client extends baseMessagingClient { }
+
+*/
+
 
 // Register classes
 background_Server.register();
-background_Client.register();
 content_Server.register();
-content_Client.register();
 sidebar_Server.register();
-sidebar_Client.register();
+
+
+// you will also need to register your classes in your code
+//content_Client.register();
+//sidebar_Client.register();
+//background_Client.register();
 
 console.log(classMapping);
