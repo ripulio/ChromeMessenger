@@ -503,29 +503,18 @@ sidebar_Server.register();
 
 // This section manages the complexities of exporting for webpack or using the classes direct 
 
-function conditionalExport(exports) {
-    if (typeof module !== 'undefined' && typeof module.exports !== 'undefined') {
-        console.log("conditionalExport: module.exports");
-        module.exports = exports;
-    } else {
-      Object.keys(exports).forEach(key => {
-        console.log("conditionalExport: using window attach " + key);
-        window[key] = exports[key];
-      });
-    }
+if (typeof module !== 'undefined' && typeof module.exports !== 'undefined') {
+    module.exports = {
+      baseMessagingHandler,
+      baseMessagingServer,
+      baseMessagingClient,
+      background_Server,
+      content_Server,
+      sidebar_Server,
+      classMapping
+    };
   }
   
-  const exports = {
-    baseMessagingHandler,
-    baseMessagingServer,
-    baseMessagingClient,
-    background_Server,
-    content_Server,
-    sidebar_Server,
-    classMapping
-  };
-  
-  conditionalExport(exports);
   
 // #endregion
 
