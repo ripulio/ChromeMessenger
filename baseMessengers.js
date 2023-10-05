@@ -1,6 +1,9 @@
 // #region BaseClasses
+console.log("baseMessengers.js loaded");
 
-export class baseMessagingHandler {
+
+const classMapping = {};
+class baseMessagingHandler {
     #target;
     #context;
     #functionTable = {};
@@ -31,7 +34,7 @@ export class baseMessagingHandler {
 
 
 
-export class baseMessagingServer {
+class baseMessagingServer {
     #functionTable = {};
     #target;
     #context;
@@ -170,6 +173,10 @@ export class baseMessagingServer {
             clientInstance = new classMapping[clientClassName]();
         } catch (e) {
             throw new Error(`Failed to instantiate ${clientClassName}: ${e.message}`);
+            // TODO Add better loging, make sure we log the registration table
+            // In the logging add some hints about what can go wrong here. e.g. 
+            // Timing issues, tyring to instantiate before the client is registered
+            // Typos in the class name
         }
 
         if (clientInstance) {
@@ -215,7 +222,7 @@ export class baseMessagingServer {
 
 }
 
-export class baseMessagingClient {
+class baseMessagingClient {
     #target;
     #context;
 
@@ -482,8 +489,44 @@ export class baseMessagingClient {
     }
 }
 
-export const classMapping = {};
 
+class background_Server extends baseMessagingServer { }
+class content_Server extends baseMessagingServer { }
+class sidebar_Server extends baseMessagingServer { }
+
+// Class registration
+background_Server.register();
+content_Server.register();
+sidebar_Server.register();
+
+
+
+// This section manages the complexities of exporting for webpack or using the classes direct 
+
+function conditionalExport(exports) {
+    if (typeof module !== 'undefined' && typeof module.exports !== 'undefined') {
+        console.log("conditionalExport: module.exports");
+        module.exports = exports;
+    } else {
+      Object.keys(exports).forEach(key => {
+        console.log("conditionalExport: using window attach " + key);
+        window[key] = exports[key];
+      });
+    }
+  }
+  
+  const exports = {
+    baseMessagingHandler,
+    baseMessagingServer,
+    baseMessagingClient,
+    background_Server,
+    content_Server,
+    sidebar_Server,
+    classMapping
+  };
+  
+  conditionalExport(exports);
+  
 // #endregion
 
 

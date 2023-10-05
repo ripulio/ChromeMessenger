@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Test Page</title>
+    <script src="baseMessengers.js"></script>
+    <script src="common.js"></script>
+</head>
+
+<body>
+
+    
+    <button id="callBackground">Call Background</button>
+    <button id="callContent">Call Content</button>
+
+    <script>
+       // const backgroundClient = new background_Client({ source: 'webpage' });
+       // const contentClient = new content_Client({ source: 'webpage' });
+      debugger;
+       const backgroundClient = new background_Client();
+       const contentClient = new content_Client();
+
+
+        document.getElementById('callBackground').addEventListener('click', async function () {
+            const responseFromBackground = await backgroundClient.sayHello();
+            console.log(responseFromBackground); // Should log "Hello, World! From Background"
+
+            await backgroundClient.callMeBack();
+
+        });
+
+        document.getElementById('callContent').addEventListener('click', async function () {
+            const responseFromContent = await contentClient.sayHello();
+            console.log(responseFromContent); // Should log "Hello, World! From Content"
+
+            const helloResponse = await contentClient.sayHello();
+            console.log(helloResponse);  // Should log "Hello, World! From Background"
+
+            const echoResponse = await contentClient.echoMessage("Test Message");
+            console.log(echoResponse);  // Should log "Echoing: Test Message From Background"
+
+            const sumResponse = await contentClient.calculateSum(5, 3);
+            console.log(sumResponse);  // Should log 8 (or some decorated version of it from the background)
+
+
+        });
+    </script>
+
+</body>
+
+</html>
