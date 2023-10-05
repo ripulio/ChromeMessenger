@@ -1,3 +1,6 @@
+/// <reference path="./baseMessengers.js" />
+/// <reference path="./Common.js" />
+
 /* our test extension, uses the manifest and the classes included in the repo
     When you depend on this repo, you will need to import the files from the repo
 
@@ -28,7 +31,7 @@ async function sayHello(sendResponse) {
 
 async function callMeBack(sendResponse, sender) {
     const myClient = new content_Client({ source: 'background' });
-    const result = await myClient.sayHello(sender);
+    const result = await myClient.sayHello(sender.tab.id);
     console.log('Result in CallMeBack:', result);
     return "I should have just called you back";
 }

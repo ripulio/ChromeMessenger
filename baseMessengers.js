@@ -435,8 +435,8 @@ class baseMessagingClient {
                 const getTabIdFromPayload = (payload) => {
                   if (Array.isArray(payload)) {
                     const lastItem = payload[payload.length - 1];
-                    if (lastItem && typeof lastItem === 'object' && lastItem.hasOwnProperty('tab') && lastItem.tab.hasOwnProperty('id')) {
-                      return lastItem.tab.id;
+                    if (lastItem && typeof lastItem === 'object' && lastItem.hasOwnProperty('recipientTabId')) {
+                      return lastItem.recipientTabId;
                     }
                   }
                   return null;
@@ -459,6 +459,7 @@ class baseMessagingClient {
                   // Use context tab ID
                   chrome.tabs.sendMessage(tabId, message, callback);
                 }
+                
             }
         });
     }
