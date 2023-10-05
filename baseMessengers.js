@@ -502,6 +502,7 @@ sidebar_Server.register();
 
 
 // This section manages the complexities of exporting for webpack or using the classes direct 
+/*
 module.exports = {
     baseMessagingHandler,
     baseMessagingServer,
@@ -511,8 +512,8 @@ module.exports = {
     sidebar_Server,
     classMapping
   };
+*/
 
-/*
 if (typeof module !== 'undefined' && typeof module.exports !== 'undefined') {
     module.exports = {
       baseMessagingHandler,
@@ -524,7 +525,7 @@ if (typeof module !== 'undefined' && typeof module.exports !== 'undefined') {
       classMapping
     };
   }
-  */
+
   
 // #endregion
 
