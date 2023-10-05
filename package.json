@@ -1,6 +1,6 @@
 {
   "name": "chromemessenger",
-  "version": "1.0.11",
+  "version": "1.0.12",
   "description": "messaging framework to all natural method calling between all components of a chrome extension",
   "main": "index.js",
   "scripts": {
