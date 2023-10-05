@@ -2,7 +2,7 @@
   "name": "chromemessenger",
   "version": "1.0.12",
   "description": "messaging framework to all natural method calling between all components of a chrome extension",
-  "main": "index.js",
+  "main": "baseMessengers.js",
   "scripts": {
     "test": "echo \\\"Error: no test specified\\\" && exit 1"
   },
