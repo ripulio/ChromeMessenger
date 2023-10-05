@@ -431,14 +431,33 @@ class baseMessagingClient {
 
             else if (transport === baseMessagingClient.TRANSPORT_CHROME_TABS) {
                 let tabId = this.context.tabId; // Assuming you've set tabId in your context
+
+                const getTabIdFromPayload = (payload) => {
+                  if (Array.isArray(payload)) {
+                    const lastItem = payload[payload.length - 1];
+                    if (lastItem && typeof lastItem === 'object' && lastItem.hasOwnProperty('tab') && lastItem.tab.hasOwnProperty('id')) {
+                      return lastItem.tab.id;
+                    }
+                  }
+                  return null;
+                };
+                
                 if (typeof tabId === 'undefined') {
+                  const payloadTabId = getTabIdFromPayload(message.payload);
+                  if (payloadTabId !== null) {
+                    // Use tab ID from payload
+                    chrome.tabs.sendMessage(payloadTabId, message, callback);
+                  } else {
+                    // Fall back to active tab ID
                     this.getActiveTabId().then(activeTabId => {
-                        chrome.tabs.sendMessage(activeTabId, message, callback);
+                      chrome.tabs.sendMessage(activeTabId, message, callback);
                     }).catch(error => {
-                        return reject(error);
+                      return reject(error);
                     });
+                  }
                 } else {
-                    chrome.tabs.sendMessage(tabId, message, callback);
+                  // Use context tab ID
+                  chrome.tabs.sendMessage(tabId, message, callback);
                 }
             }
         });

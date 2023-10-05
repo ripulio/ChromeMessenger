@@ -20,18 +20,21 @@
 
 console.log("background.js loaded");
 
-const backgroundMethods = {
-    sayHello: async (sendResponse) => {
-        return "Hello, World! From Background";
-    },
+async function sayHello(sendResponse) {
+    return "Hello, World! From Background";
+}
 
-    callMeBack: async (sendResponse) => {
-        const myClient = new content_Client({ source: 'background' });
-        const result = await myClient.sayHello();
-        console.log('Result in CallMeBack:', result);
-        return "I should have just called you back"
-    }
-};
+// if we add a sendresponse and sender parameters to our functions we can access the sender.
+
+async function callMeBack(sendResponse, sender) {
+    const myClient = new content_Client({ source: 'background' });
+    const result = await myClient.sayHello(sender);
+    console.log('Result in CallMeBack:', result);
+    return "I should have just called you back";
+}
+
+const backgroundMethods = {sayHello, callMeBack};
+
 
 console.log("background.js loaded. about to creaat server");
 const myServer = new background_Server(backgroundMethods);

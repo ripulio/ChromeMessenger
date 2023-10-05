@@ -22,9 +22,12 @@ if (typeof require !== 'undefined') {
 // Define your client classes
 class content_Client extends baseMessagingClient {
   // We don't implement the methods in the derived class
-  async echoMessage(message) { }
-  async sayHello() { }
-  async calculateSum(a, b) { }
+  // If we need target a specfic tab, adding sender will route it to the correct tab
+  // The actual implementations, don't need to have sender, if they do, it won't harm anything
+  // But it will be equivalent to the context they are in, so redundant
+  async echoMessage(message, sender) { }
+  async sayHello(sender) { }
+  async calculateSum(a, b, sender) { }
 }
 
 // Register it
