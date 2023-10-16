@@ -69,12 +69,21 @@ class baseMessagingServer {
                     const context = args.pop();
                     const sender = args.pop();
                     const sendResponse = args.pop();
-                    const result = await func(...args, sendResponse, sender, context);  // Context is the last parameter
-                    sendResponse(result);
+                    let result;
+                    try {
+                        result = await func(...args, sendResponse, sender, context);  // Context is the last parameter
+                        sendResponse(result);
+                    } catch (error) {
+                        console.error("An error occurred:registerFunctionsFromObject ", error);
+                        sendResponse({
+                            success: false, error: error.toString()
+                        });
+                    }
                 };
-            }
+            };
         }
     }
+
 
 
 
@@ -96,6 +105,7 @@ class baseMessagingServer {
             "context": {}                       // this is custom, and is used to allow the server to interrogate the sending context, if needed. In this example it is empty
         }
         */
+
         chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             console.log("chrome.runtime.onMessage called:");
             console.log("Request:", request);
@@ -106,11 +116,33 @@ class baseMessagingServer {
             const handler = this.#functionTable[request.messageType];
             if (handler) {
                 console.log("Handler found:", handler);
-                handler(...request.payload, sendResponse, sender, request.context);
+                try {
+                    handler(...request.payload, sendResponse, sender, request.context);
+                } catch (error) {
+                    debugger;
+                    console.error("An error occurred:", error);
+                    sendResponse({ success: false, error: error.toString() });
+                }
                 return true;
             }
         });
 
+        /*
+                chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+                    console.log("chrome.runtime.onMessage called:");
+                    console.log("Request:", request);
+                    console.log("Sender:", sender);
+        
+                    if (request.target !== this.#target) return;
+        
+                    const handler = this.#functionTable[request.messageType];
+                    if (handler) {
+                        console.log("Handler found:", handler);
+                        handler(...request.payload, sendResponse, sender, request.context);
+                        return true;
+                    }
+                });
+        */
         window.addEventListener('message', (event) => {
             console.log("window.addEventListener called");
             console.log("Event data:", event.data);
@@ -244,19 +276,19 @@ class baseMessagingClient {
             source: 'webpage',
             target: 'background',
             via: 'content',
-            transport: baseMessagingClient.TRANSPORT_CHROME_RUNTIME 
+            transport: baseMessagingClient.TRANSPORT_CHROME_RUNTIME
         },
         'webpage_to_content': {
             source: 'webpage',
             target: 'content',
             via: null,
-            transport: baseMessagingClient.TRANSPORT_POST_MESSAGE 
+            transport: baseMessagingClient.TRANSPORT_POST_MESSAGE
         },
         'content_to_background': {
             source: 'content',
             target: 'background',
             via: null,
-            transport: baseMessagingClient.TRANSPORT_CHROME_RUNTIME 
+            transport: baseMessagingClient.TRANSPORT_CHROME_RUNTIME
         },
         'background_to_content': {
             source: 'background',
@@ -283,7 +315,7 @@ class baseMessagingClient {
         const target = this.constructor.name.replace(/_Client$/, '').toLowerCase();
         this.target = target;
         this.#init;
-    
+
         // Calculate and set the transport and via class
         const { transport, via } = this.calculateRoutingConfig();
         this.transport = transport;
@@ -324,8 +356,8 @@ class baseMessagingClient {
         }
         return 'webpage';
     }
-    
-    
+
+
 
     #init() {
         window.addEventListener('message', (event) => {
@@ -338,7 +370,7 @@ class baseMessagingClient {
         // Set default to baseMessagingClient.TRANSPORT_CHROME_RUNTIME
         let defaultTransport = baseMessagingClient.TRANSPORT_CHROME_RUNTIME;
         let defaultVia = null; // Default to null for direct communication
-        
+
         if (this.context && !this.context.routingInProgress) {
             const routeKey = this.getRoutingKey();
             if (routeKey && this.constructor.routingConfig) {
@@ -351,7 +383,7 @@ class baseMessagingClient {
                 }
             }
         }
-    
+
         return {
             transport: defaultTransport,
             via: defaultVia
@@ -369,18 +401,18 @@ class baseMessagingClient {
             });
         });
     }
-    
-    
+
+
     send(methodName, ...args) {
         let transport = this.transport;
-    
+
         if (this.via !== null) {
             return this.routeVia(this.via, methodName, ...args);
         }
-    
+
         // Assume the message type is direct
         const messageType = methodName;
-    
+
         // The message to be sent
         const message = {
             target: this.target,
@@ -389,38 +421,42 @@ class baseMessagingClient {
             context: this.context,
             proxyTarget: args[1]  // Packing of args, consider moving to a more typed approach later
         };
-    
+
         // Promise to handle the message sending
         return new Promise((resolve, reject) => {
             const callback = (response) => {
+                if (response.success === false) {
+                    return reject(new Error(response.error));
+                }
+
                 if (chrome.runtime.lastError) {
                     return reject(chrome.runtime.lastError);
                 }
                 resolve(response);
             };
-    
-            if (this.context.routingInProgress){
+
+            if (this.context.routingInProgress) {
                 // for now force to window messaging
                 transport = baseMessagingClient.TRANSPORT_POST_MESSAGE;
             }
-    
+
             // Use the determined transport method
             if (transport === baseMessagingClient.TRANSPORT_POST_MESSAGE) {
                 // think this was testing and can go
                 //message.uniqueID = uniqueID;  // Attach unique identifier to message
-    
+
                 let targetOrigin = (typeof window !== 'undefined' && window.origin && window.origin !== 'null') ? window.origin : '*';
-    
+
                 const eventHandler = (event) => {
                     if (event.data && event.data.response) {
                         window.removeEventListener('message', eventHandler);
                         resolve(event.data.response);
                     }
                 };
-    
+
                 window.addEventListener('message', eventHandler);
                 window.postMessage(message, targetOrigin);
-    
+
             } else if (transport === baseMessagingClient.TRANSPORT_CHROME_RUNTIME) {
                 if (this.extensionId) {
                     chrome.runtime.sendMessage(this.extensionId, message, callback);
@@ -433,37 +469,37 @@ class baseMessagingClient {
                 let tabId = this.context.tabId; // Assuming you've set tabId in your context
 
                 const getTabIdFromPayload = (payload) => {
-                  if (Array.isArray(payload)) {
-                    const lastItem = payload[payload.length - 1];
-                    if (lastItem && typeof lastItem === 'object' && lastItem.hasOwnProperty('recipientTabId')) {
-                      return lastItem.recipientTabId;
+                    if (Array.isArray(payload)) {
+                        const lastItem = payload[payload.length - 1];
+                        if (lastItem && typeof lastItem === 'object' && lastItem.hasOwnProperty('recipientTabId')) {
+                            return lastItem.recipientTabId;
+                        }
                     }
-                  }
-                  return null;
+                    return null;
                 };
-                
+
                 if (typeof tabId === 'undefined') {
-                  const payloadTabId = getTabIdFromPayload(message.payload);
-                  if (payloadTabId !== null) {
-                    // Use tab ID from payload
-                    chrome.tabs.sendMessage(payloadTabId, message, callback);
-                  } else {
-                    // Fall back to active tab ID
-                    this.getActiveTabId().then(activeTabId => {
-                      chrome.tabs.sendMessage(activeTabId, message, callback);
-                    }).catch(error => {
-                      return reject(error);
-                    });
-                  }
+                    const payloadTabId = getTabIdFromPayload(message.payload);
+                    if (payloadTabId !== null) {
+                        // Use tab ID from payload
+                        chrome.tabs.sendMessage(payloadTabId, message, callback);
+                    } else {
+                        // Fall back to active tab ID
+                        this.getActiveTabId().then(activeTabId => {
+                            chrome.tabs.sendMessage(activeTabId, message, callback);
+                        }).catch(error => {
+                            return reject(error);
+                        });
+                    }
                 } else {
-                  // Use context tab ID
-                  chrome.tabs.sendMessage(tabId, message, callback);
+                    // Use context tab ID
+                    chrome.tabs.sendMessage(tabId, message, callback);
                 }
-                
+
             }
         });
     }
-    
+
 
 
     getRoutingKey() {
@@ -536,17 +572,17 @@ module.exports = {
 
 if (typeof module !== 'undefined' && typeof module.exports !== 'undefined') {
     module.exports = {
-      baseMessagingHandler,
-      baseMessagingServer,
-      baseMessagingClient,
-      background_Server,
-      content_Server,
-      sidebar_Server,
-      classMapping
+        baseMessagingHandler,
+        baseMessagingServer,
+        baseMessagingClient,
+        background_Server,
+        content_Server,
+        sidebar_Server,
+        classMapping
     };
-  }
+}
 
-  
+
 // #endregion
 
 
