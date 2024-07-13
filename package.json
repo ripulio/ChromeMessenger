@@ -1,9 +1,11 @@
 {
   "name": "chromemessenger",
   "version": "1.1.0",
+  "types": "dist/index.d.ts",
+  "main": "dist/index.js",
   "description": "messaging framework to all natural method calling between all components of a chrome extension",
-  "main": "baseMessengers.js",
   "scripts": {
+    "build": "tsc",
     "test": "echo \\\"Error: no test specified\\\" && exit 1"
   },
   "repository": {
@@ -17,5 +19,10 @@
     "async"
   ],
   "author": "Peter Maude",
-  "license": "ISC"
+  "license": "ISC",
+  "devDependencies": {
+    "@types/chrome": "^0.0.268",
+    "@types/node": "^20.14.10",
+    "typescript": "^5.5.3"
+  }
 }

@@ -1,43 +1,39 @@
-// #region BaseClasses
 console.log("baseMessengers.js loaded");
 
 
-const classMapping = {};
-class baseMessagingHandler {
-    #target;
-    #context;
-    #functionTable = {};
+const classMapping : {[key: string]: any}= {};
+export class baseMessagingHandler {
+    protected target : any;
+    protected context : any;
+    private functionTable :{[key: string]: any} = {};
 
-    constructor(handlerObject) {
-        this.#registerFunctionsFromObject(handlerObject);
-        this.#initCommon();
+    constructor(handlerObject: any) {
+        this.registerFunctionsFromObject(handlerObject);
+        this.initCommon();
     }
 
-    #registerFunctionsFromObject(handlerObject) {
+    private registerFunctionsFromObject(handlerObject: any) {
         // This code will be the same as in your original #registerFunctionsFromObject method
     }
 
-    #initCommon() {
+    private initCommon() {
         // This can include any common initialization logic.
         // For now, it's empty, but can be filled in as required.
     }
 
-    setTarget(target) {
-        this.#target = target;
+    setTarget(target: any) {
+        this.target = target;
     }
 
-    setContext(context) {
-        this.#context = context;
+    setContext(context: any) {
+        this.context = context;
     }
 }
 
-
-
-
-class baseMessagingServer {
-    #functionTable = {};
-    #target;
-    #context;
+export class baseMessagingServer {
+    private functionTable :{[key: string]: any} = {};
+    private target;
+    protected context : any;
 
     static register() {
         if (this.name) {
@@ -45,16 +41,15 @@ class baseMessagingServer {
         }
     }
 
-
-    constructor(handlerObject) {
+    constructor(handlerObject: any) {
         const target = this.constructor.name.replace(/_Server$/, '').toLowerCase();
-        this.#target = target;
-        this.#registerFunctionsFromObject(handlerObject);
-        this.#init();
-        this.#autoCheckMethodConsistency();
+        this.target = target;
+        this.registerFunctionsFromObject(handlerObject);
+        this.init();
+        this.autoCheckMethodConsistency();
     }
 
-    #registerFunctionsFromObject(handlerObject) {
+    private registerFunctionsFromObject(handlerObject: any) {
         for (const [key, func] of Object.entries(handlerObject)) {
             if (typeof func === 'function') {
                 // the arguments come in this order : 
@@ -65,7 +60,7 @@ class baseMessagingServer {
                 // the context, which is the custom context that was passed in. This is used to allow an implementation to interrogate the sedning context, if needed
                 // we pop the internal framework arguments out one by one from the bottom of the array
                 // this leaves the custom parameters in the array, which we pass to the function
-                this.#functionTable[key] = async (...args) => {
+                this.functionTable[key] = async (...args: any[]) => {
                     const context = args.pop();
                     const sender = args.pop();
                     const sendResponse = args.pop();
@@ -75,8 +70,17 @@ class baseMessagingServer {
                         sendResponse(result);
                     } catch (error) {
                         console.error("An error occurred:registerFunctionsFromObject ", error);
+                        
+                        let errorMessage = "Unknown error";
+
+                        if (error instanceof Error) {
+                          errorMessage = error.message;
+                        } else if (typeof error === 'string') {
+                          errorMessage = error;
+                        }
+
                         sendResponse({
-                            success: false, error: error.toString()
+                            success: false, error: errorMessage
                         });
                     }
                 };
@@ -87,7 +91,7 @@ class baseMessagingServer {
 
 
 
-    #init() {
+    private init() {
         // the messaging framework uses a consistent set of arguments, packing the custom arguments into a payload array
         // the request should always have these four params
         /*
@@ -111,9 +115,9 @@ class baseMessagingServer {
             console.log("Request:", request);
             console.log("Sender:", sender);
 
-            if (request.target !== this.#target) return;
+            if (request.target !== this.target) return;
 
-            const handler = this.#functionTable[request.messageType];
+            const handler = this.functionTable[request.messageType];
             if (handler) {
                 console.log("Handler found:", handler);
                 try {
@@ -121,7 +125,14 @@ class baseMessagingServer {
                 } catch (error) {
                     debugger;
                     console.error("An error occurred:", error);
-                    sendResponse({ success: false, error: error.toString() });
+                    let errorMessage = "Unknown error";
+
+                    if (error instanceof Error) {
+                      errorMessage = error.message;
+                    } else if (typeof error === 'string') {
+                      errorMessage = error;
+                    }
+                    sendResponse({ success: false, error: errorMessage });
                 }
                 return true;
             }
@@ -147,7 +158,7 @@ class baseMessagingServer {
             console.log("window.addEventListener called");
             console.log("Event data:", event.data);
 
-            if (event.source !== window || event.data.target !== this.#target) return;
+            if (event.source !== window || event.data.target !== this.target) return;
 
             if (event.data.messageType === "routeTo") {
                 // at this point the server (often the content_server) is being asked to route a message to another target
@@ -155,14 +166,14 @@ class baseMessagingServer {
                 // and call the correct method on that client
 
 
-                const sendResponse = (response) => {
+                const sendResponse = (response: any) => {
                     //!! This helps deal with local files, need to explore any potiential security issues
                     let targetOrigin = '*';  // Default to wildcard
                     if (typeof window !== 'undefined' && window !== null) {  // Check if window object is available
                         targetOrigin = (window.origin && window.origin !== 'null') ? window.origin : '*';
                     }
 
-                    window.postMessage({ target: this.#target, messageType: event.data.messageType, response }, targetOrigin);
+                    window.postMessage({ target: this.target, messageType: event.data.messageType, response }, targetOrigin);
                 };
                 // We are proxying now, so the target has to shift to the proxy target
                 // !!! not sure how we are getting here, with event.data missing, for now protect against it, and investigate later
@@ -174,14 +185,14 @@ class baseMessagingServer {
                 }
 
             } else {
-                const handler = this.#functionTable[event.data.messageType];
+                const handler = this.functionTable[event.data.messageType];
                 if (handler) {
                     let targetOrigin = '*';  // Default to wildcard
                     if (typeof window !== 'undefined' && window !== null) {  // Check if window object is available
                         targetOrigin = (window.origin && window.origin !== 'null') ? window.origin : '*';
                     }
-                    const sendResponse = (response) => {
-                        window.postMessage({ target: this.#target, messageType: event.data.messageType, response }, targetOrigin);
+                    const sendResponse = (response: any) => {
+                        window.postMessage({ target: this.target, messageType: event.data.messageType, response }, targetOrigin);
                     };
                     // !!! adding null for the sender here, this needs investigation, what is the sender in this case?
                     // This is a stray event case, we need to track it down, don't let this stay in the final code
@@ -196,7 +207,7 @@ class baseMessagingServer {
         });
     }
 
-    #autoCheckMethodConsistency() {
+    private autoCheckMethodConsistency() {
         const clientClassName = this.constructor.name.replace("Server", "Client");
         let clientInstance;
 
@@ -204,7 +215,7 @@ class baseMessagingServer {
             // Dynamically instantiate the corresponding client
             clientInstance = new classMapping[clientClassName]();
         } catch (e) {
-            throw new Error(`Failed to instantiate ${clientClassName}: ${e.message}`);
+            throw new Error(`Failed to instantiate ${clientClassName}: ${(e as Error).message}`);
             // TODO Add better loging, make sure we log the registration table
             // In the logging add some hints about what can go wrong here. e.g. 
             // Timing issues, tyring to instantiate before the client is registered
@@ -216,13 +227,13 @@ class baseMessagingServer {
             const clientMethods = Object.getOwnPropertyNames(Object.getPrototypeOf(clientInstance))
                 .filter(name => name !== 'constructor' && typeof clientInstance[name] === 'function');
 
-            this.#checkMethodConsistency(clientMethods);
+            this.checkMethodConsistency(clientMethods);
         }
     }
 
 
-    #checkMethodConsistency(clientMethods) {
-        const serverMethods = Object.keys(this.#functionTable);
+    private checkMethodConsistency(clientMethods: string[]) {
+        const serverMethods = Object.keys(this.functionTable);
 
         const missingOnClient = serverMethods.filter(method => !clientMethods.includes(method));
         const missingOnServer = clientMethods.filter(method => !serverMethods.includes(method));
@@ -232,7 +243,7 @@ class baseMessagingServer {
         }
     }
 
-    async routeTo(methodName, target, allArgs) {
+    async routeTo(methodName: string, target: string, allArgs: any[]) {
         // De-structure the allArgs array to separate out the custom args and the system args
         const context = allArgs.pop();
         const sender = allArgs.pop();
@@ -254,22 +265,16 @@ class baseMessagingServer {
 
 }
 
-class baseMessagingClient {
-    #target;
-    #context;
+export class baseMessagingClient {
+    target;
+    context: any;
+    extensionId: any;
+    transport;
+    via;
 
     static TRANSPORT_POST_MESSAGE = 'window.postMessage';
     static TRANSPORT_CHROME_RUNTIME = 'chrome.runtime.sendMessage';
     static TRANSPORT_CHROME_TABS = 'chrome.runtime.tabs';
-
-    static routingConfig = {
-        'webpage_to_background': {
-            source: 'webpage',
-            target: 'background',
-            via: 'content'
-        }
-    }
-
 
     static routingConfig = {
         'webpage_to_background': {
@@ -305,7 +310,7 @@ class baseMessagingClient {
         }
     }
 
-    constructor(context = {}) {
+    constructor(context : any = {}) {
         this.context = context;
         if (this.context.source === undefined) {
             this.context.source = this.detectContext();
@@ -314,7 +319,7 @@ class baseMessagingClient {
         this.extensionId = null;  // Initialize the extensionId property
         const target = this.constructor.name.replace(/_Client$/, '').toLowerCase();
         this.target = target;
-        this.#init;
+        this.init;
 
         // Calculate and set the transport and via class
         const { transport, via } = this.calculateRoutingConfig();
@@ -322,9 +327,9 @@ class baseMessagingClient {
         this.via = via;
 
         return new Proxy(this, {
-            get: function (target, prop, receiver) {
+            get: function (target: any, prop, receiver) {
                 if (typeof target[prop] === 'function' && prop !== 'send' && prop !== 'sendWrapper') {
-                    return function (...args) {
+                    return function (...args: any[]) {
                         return target.sendWrapper(prop, ...args);
                     };
                 }
@@ -359,7 +364,7 @@ class baseMessagingClient {
 
 
 
-    #init() {
+    private init() {
         window.addEventListener('message', (event) => {
             console.log("client window window.addEventListener called");
             console.log("Event data:", event.data);
@@ -373,8 +378,8 @@ class baseMessagingClient {
 
         if (this.context && !this.context.routingInProgress) {
             const routeKey = this.getRoutingKey();
-            if (routeKey && this.constructor.routingConfig) {
-                const routeConfig = this.constructor.routingConfig[routeKey];
+            if (routeKey && (this.constructor as typeof baseMessagingClient).routingConfig) {
+                const routeConfig = ((this.constructor as typeof baseMessagingClient).routingConfig as any)[routeKey];
                 if (routeConfig) {
                     return {
                         transport: routeConfig.transport || defaultTransport, // Fallback to default if null
@@ -390,10 +395,10 @@ class baseMessagingClient {
         };
     }
 
-    getActiveTabId() {
+    getActiveTabId() : Promise<number> {
         return new Promise((resolve, reject) => {
             chrome.tabs.query({ active: true }, (tabs) => {
-                if (tabs.length > 0) {
+                if (tabs.length > 0 && tabs[0].id) {
                     resolve(tabs[0].id);
                 } else {
                     reject(new Error("No active tab found."));
@@ -403,7 +408,7 @@ class baseMessagingClient {
     }
 
 
-    send(methodName, ...args) {
+    send(methodName: string, ...args: any[]) {
         let transport = this.transport;
 
         if (this.via !== null) {
@@ -424,7 +429,7 @@ class baseMessagingClient {
 
         // Promise to handle the message sending
         return new Promise((resolve, reject) => {
-            const callback = (response) => {
+            const callback = (response: any) => {
                 if (response.success === false) {
                     return reject(new Error(response.error));
                 }
@@ -447,7 +452,7 @@ class baseMessagingClient {
 
                 let targetOrigin = (typeof window !== 'undefined' && window.origin && window.origin !== 'null') ? window.origin : '*';
 
-                const eventHandler = (event) => {
+                const eventHandler = (event: any) => {
                     if (event.data && event.data.response) {
                         window.removeEventListener('message', eventHandler);
                         resolve(event.data.response);
@@ -468,7 +473,7 @@ class baseMessagingClient {
             else if (transport === baseMessagingClient.TRANSPORT_CHROME_TABS) {
                 let tabId = this.context.tabId; // Assuming you've set tabId in your context
 
-                const getTabIdFromPayload = (payload) => {
+                const getTabIdFromPayload = (payload: any) => {
                     if (Array.isArray(payload)) {
                         const lastItem = payload[payload.length - 1];
                         if (lastItem && typeof lastItem === 'object' && lastItem.hasOwnProperty('recipientTabId')) {
@@ -510,7 +515,7 @@ class baseMessagingClient {
         return `${this.context.source}_to_${this.target}`;
     }
 
-    routeVia(via, methodName, ...args) {
+    routeVia(via : string, methodName: string, ...args: any[]) {
         // Dynamic instantiation based on the 'via' parameter, pass along the current context
         const viaClient = new classMapping[`${via}_Client`]({
             ...this.context,
@@ -523,11 +528,11 @@ class baseMessagingClient {
     }
 
 
-    sendWrapper(functionName, ...args) {
+    sendWrapper(functionName: string, ...args: any[]) {
         return this.send(functionName, ...args);
     }
 
-    async routeTo(methodName, target, allArgs) {
+    async routeTo(methodName: string, target: string, allArgs: any[]) {
         // De-structure the allArgs array to separate out the custom args and the system args
         const sendResponse = allArgs.pop();
         const sender = allArgs.pop();
@@ -546,45 +551,11 @@ class baseMessagingClient {
 }
 
 
-class background_Server extends baseMessagingServer { }
-class content_Server extends baseMessagingServer { }
-class sidebar_Server extends baseMessagingServer { }
+export class background_Server extends baseMessagingServer { }
+export class content_Server extends baseMessagingServer { }
+export class sidebar_Server extends baseMessagingServer { }
 
 // Class registration
 background_Server.register();
 content_Server.register();
 sidebar_Server.register();
-
-
-
-// This section manages the complexities of exporting for webpack or using the classes direct 
-/*
-module.exports = {
-    baseMessagingHandler,
-    baseMessagingServer,
-    baseMessagingClient,
-    background_Server,
-    content_Server,
-    sidebar_Server,
-    classMapping
-  };
-*/
-
-if (typeof module !== 'undefined' && typeof module.exports !== 'undefined') {
-    module.exports = {
-        baseMessagingHandler,
-        baseMessagingServer,
-        baseMessagingClient,
-        background_Server,
-        content_Server,
-        sidebar_Server,
-        classMapping
-    };
-}
-
-
-// #endregion
-
-
-
-
