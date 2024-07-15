@@ -5,7 +5,6 @@ const classMapping : {[key: string]: any}= {};
 export class baseMessagingHandler {
     protected target : any;
     protected context : any;
-    private functionTable :{[key: string]: any} = {};
 
     constructor(handlerObject: any) {
         this.registerFunctionsFromObject(handlerObject);
