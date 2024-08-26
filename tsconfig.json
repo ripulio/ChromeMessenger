@@ -12,5 +12,5 @@
     "skipLibCheck": true
   },
   "include": [ "src"  ],
-  "exclude": ["node_modules", "dist", "src/common.js", "src/content.js", "src/background.js"]
+  "exclude": ["node_modules", "dist"]
 }
