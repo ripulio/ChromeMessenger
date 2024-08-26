@@ -10,7 +10,9 @@ export function createBackgroundApiServer<T extends object>(
       return false;
     }
 
-    Promise.resolve((method as Function).apply(backgroundApi, request.payload))
+    Promise.resolve(
+      (method as Function).apply(backgroundApi, [...request.payload, sender])
+    )
       .then((result) => {
         sendResponse(result);
       })
