@@ -1,36 +1,34 @@
-import { ApiWrapper } from "./TypeUtilities";
+import { ApiWrapper, createObjectWrapper } from "./TypeUtilities";
 
 type TabTargetApiWrapper<T> = {
-  forTab(tabId: number): ApiWrapper<T>;
+  forTab(tabId: number): T;
 };
 
 export function createContentScriptApiWrapper<T>(): TabTargetApiWrapper<T> {
   const tabTargetApiWrapper = {
     forTab(tabId: number) {
       const messageHandler = (
-        methodName: string,
+        functionPath: string[],
         ...args: any[]
       ): Promise<any> => {
         return new Promise((resolve, reject) => {
           const message = {
-            messageType: methodName,
+            messageType: functionPath,
             payload: args,
           };
 
           console.log(`Sending message: ${JSON.stringify(message)}`);
-          chrome.tabs.sendMessage(tabId, message);
-          // In a real extension, you'd use chrome.tabs.sendMessage here
-          // For this example, we'll just resolve with a mock response
-          setTimeout(() => resolve("Mock response"), 100);
+          chrome.tabs.sendMessage(tabId, message, (response) => {
+            if (chrome.runtime.lastError) {
+              reject(chrome.runtime.lastError);
+            } else {
+              resolve(response);
+            }
+          });
         });
       };
-      return new Proxy({} as ApiWrapper<T>, {
-        get: (target, prop: string) => {
-          return (...args: any[]) => messageHandler(prop, ...args);
-        },
-      });
+      return createObjectWrapper<T>(messageHandler, []) as T;
     },
   };
-
   return tabTargetApiWrapper;
 }
