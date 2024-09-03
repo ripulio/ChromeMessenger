@@ -12,7 +12,7 @@ export type ApiWrapper<T> = {
 export function createObjectWrapper<T>(
   messageHandler: (functionPath: string[], ...args: any[]) => Promise<any>,
   path: string[]
-): ApiWrapper<T> {
+): T {
   const handler = {
     get(target: any, prop: string) {
       const newPath = [...path, prop];
@@ -23,5 +23,5 @@ export function createObjectWrapper<T>(
     }
   };
 
-  return new Proxy(function(){}, handler) as ApiWrapper<T>;
+  return new Proxy(function(){}, handler) as T;
 }
