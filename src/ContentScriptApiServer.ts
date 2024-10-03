@@ -1,8 +1,12 @@
 export function createContentScriptApiServer<T extends object>(
-  contentScriptApi: T
+  contentScriptApi: T,
+  globalContext: typeof globalThis
 ): void {
   chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-    return createFunctionCall(request.messageType, request.payload, contentScriptApi, sendResponse);      
+    if (request.source === 'sandbox') {
+      return createFunctionCall(request.messageType, request.payload, globalContext, sendResponse);
+    }
+    return createFunctionCall(request.messageType, request.payload, contentScriptApi, sendResponse);
   });
 }
 
@@ -12,22 +16,23 @@ function createFunctionCall(
   target: any,
   sendResponse: (response: any) => void
 ) : boolean {
+  let currentTarget = target;
   for (let i = 0; i < messagePath.length - 1; i++) {
-    if (target[messagePath[i]] === undefined) {
-      throw new Error(`Function ${messagePath} not found in contentScriptApi`);
+    if (currentTarget[messagePath[i]] === undefined) {
+      throw new Error(`Path ${messagePath.slice(0, i + 1).join('.')} not found in target`);
     }
-    target = target[messagePath[i]];
+    currentTarget = currentTarget[messagePath[i]];
   }
 
   const functionName = messagePath[messagePath.length - 1];
-  const functionToCall = target[functionName];
+  const functionToCall = currentTarget[functionName];
 
   if (functionToCall === undefined) {
-    throw new Error(`${messagePath.join(".")} not found on contentScriptApi`);
+    throw new Error(`${messagePath.join(".")} not found on target`);
   }
 
   if (typeof functionToCall === "function") {
-    Promise.resolve((functionToCall as Function).apply(target, payload))
+    Promise.resolve(functionToCall.apply(currentTarget, payload))
       .then((result) => {
         sendResponse(result);
       })
@@ -36,7 +41,7 @@ function createFunctionCall(
         sendResponse({ error: error.message });
       });
   } else {
-    // if its not a function, then it should be a value
+    // if it's not a function, then it should be a value
     sendResponse(functionToCall);
   }
 
