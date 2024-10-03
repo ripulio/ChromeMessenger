@@ -2,6 +2,16 @@ export function createBackgroundApiServer<T extends object>(
   backgroundApi: T
 ): void {
   chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+    if (request.source === "sandbox") {
+      const destinationTab = request.targetTabId;
+      // forward to content script for active page
+      chrome.tabs.sendMessage(destinationTab, request, (response) => {
+        sendResponse(response);
+      });
+      // return here or wait for the response to propogate? 
+      return;
+    }
+    
     const messagePath: string[] = request.messageType;
 
     let target: any = backgroundApi;
