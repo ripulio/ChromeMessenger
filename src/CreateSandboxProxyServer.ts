@@ -2,18 +2,28 @@
 export function createSandboxProxyServer(iframeId: string) {
   // on message
   console.log("creating server");
-
+  let tabId: number | undefined;
   // proxies messages from sandbox to background
   window.addEventListener("message", (event) => {
     console.log("message received from sandbox", event);
-    chrome.runtime.sendMessage(event.data, (response) => {
-      event.source!.postMessage(response);
-    });
+    chrome.runtime.sendMessage(
+      { ...event.data, sandboxTabId: tabId },
+      (response) => {
+        event.source!.postMessage(response);
+      }
+    );
   });
 
   // proxies messages from service worker to sandbox
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     console.log("message received from service worker", message);
+
+    if (message.action === "initializeConfig") {
+      tabId = message.tabId;
+      sendResponse({ success: true });
+      return;
+    }
+
     const sandboxWindow = (
       document.getElementById(iframeId) as HTMLIFrameElement
     ).contentWindow;
@@ -24,10 +34,6 @@ export function createSandboxProxyServer(iframeId: string) {
     }
 
     // if message is from background, send to sandbox
-    if (message.source === "background") {
-      sandboxWindow.postMessage(message, "*");
-    }
-
-    throw new Error(`Message recieved from unknown source: ${message.source}`);
+    sandboxWindow.postMessage(message, "*");
   });
 }

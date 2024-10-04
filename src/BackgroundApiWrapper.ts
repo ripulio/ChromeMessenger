@@ -1,7 +1,10 @@
-import { ApiWrapper, createObjectWrapper } from "./TypeUtilities";
+import { createObjectWrapper } from "./TypeUtilities";
 
 export function createBackgroundApiWrapper<T>(): T {
-  const messageHandler = (functionPath: string[], ...args: any[]): Promise<any> => {
+  const messageHandler = (
+    functionPath: string[],
+    ...args: any[]
+  ): Promise<any> => {
     return new Promise((resolve, reject) => {
       const message = {
         messageType: functionPath,
@@ -18,20 +21,25 @@ export function createBackgroundApiWrapper<T>(): T {
   return createObjectWrapper<T>(messageHandler, []) as T;
 }
 
-export function createProxyObjectForSandboxContext<T>(tabId?: number | undefined) : T {
-  
-  const messageHandler = (functionPath: string[], ...args: any[]): Promise<any> => {
+export function createProxyObjectForSandboxContext<T>(
+  tabId: number | undefined,
+  callbackRegistry: Map<string, Function>
+): T {
+  const messageHandler = (
+    functionPath: string[],
+    ...args: any[]
+  ): Promise<any> => {
     return new Promise((resolve, reject) => {
       const message = {
         messageType: functionPath,
         payload: args,
         source: "sandbox",
         destination: "content",
-        targetTabId: tabId
+        targetTabId: tabId,
       };
 
-      for (const key in message.payload){
-        if (typeof message.payload[key] === 'function'){
+      for (const key in message.payload) {
+        if (typeof message.payload[key] === "function") {
           message.payload[key] = message.payload[key].toString();
         }
       }
@@ -40,5 +48,9 @@ export function createProxyObjectForSandboxContext<T>(tabId?: number | undefined
     });
   };
 
-  return createObjectWrapper<T>(messageHandler, []) as T;
+  return createObjectWrapper<T>(
+    messageHandler,
+    [],
+    callbackRegistry as Map<string, (...args: any[]) => unknown>
+  ) as T;
 }

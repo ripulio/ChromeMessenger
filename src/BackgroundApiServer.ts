@@ -2,6 +2,22 @@ export function createBackgroundApiServer<T extends object>(
   backgroundApi: T
 ): void {
   chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+
+    if (request.messageType == "sandboxCallback") {
+      // send message to sandbox iframe
+      const tabId = request.sandboxTabId;
+      const callbackReference = request.callbackReference;
+      
+      chrome.tabs.sendMessage(tabId, {
+        callbackReference: callbackReference,
+        sandboxTabId: tabId
+      }, (response) => {
+        console.log("sandboxCallback response", response);
+      });
+
+      return;
+    }
+
     if (request.source === "sandbox") {
       const destinationTab = request.targetTabId;
       // forward to content script for active page
