@@ -7,25 +7,35 @@ type TabTargetApiWrapper<T> = {
 export function createContentScriptApiWrapper<T>(): TabTargetApiWrapper<T> {
   const tabTargetApiWrapper = {
     forTab(tabId: number) {
-      const messageHandler = (
-        functionPath: string[],
-        ...args: any[]
-      ): Promise<any> => {
-        return new Promise((resolve, reject) => {
-          const message = {
-            messageType: functionPath,
-            payload: args,
-          };
+      const messageHandler = (functionPath: string[], ...args: any[]): any => {
+        const message = {
+          messageType: functionPath,
+          payload: args,
+        };
 
-          console.log(`Sending message: ${JSON.stringify(message)}`);
-          chrome.tabs.sendMessage(tabId, message, (response) => {
-            if (chrome.runtime.lastError) {
-              reject(chrome.runtime.lastError);
-            } else {
-              resolve(response);
-            }
-          });
+        let response: any | undefined = undefined;
+        let error: chrome.runtime.LastError | undefined = undefined;
+        console.log(`Sending message: ${JSON.stringify(message)}`);
+        chrome.tabs.sendMessage(tabId, message, (response) => {
+          if (chrome.runtime.lastError) {
+            response = chrome.runtime.lastError;
+          } else {
+            response = response;
+          }
         });
+
+        function waitForResponse() {
+          if (error !== undefined) {
+            throw error;
+          }
+
+          if (response === undefined) {
+            setTimeout(waitForResponse, 5);
+          }
+
+          return response;
+        }
+        return waitForResponse();
       };
       return createObjectWrapper<T>(messageHandler, []) as T;
     },

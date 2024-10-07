@@ -1,11 +1,11 @@
 // to run on page that has sandboxed iframe
 export function createSandboxProxyServer(iframeId: string) {
   // on message
-  console.log("creating server");
+  console.log("Creating sandbox proxy server");
   let tabId: number | undefined;
-  // proxies messages from sandbox to background
+  // proxies messages from sandbox to service worker
   window.addEventListener("message", (event) => {
-    console.log("message received from sandbox", event);
+    console.log("Message recieved from sandbox, forwarding to service worker:", event);
     chrome.runtime.sendMessage(
       { ...event.data, sandboxTabId: tabId },
       (response) => {
@@ -16,7 +16,7 @@ export function createSandboxProxyServer(iframeId: string) {
 
   // proxies messages from service worker to sandbox
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    console.log("message received from service worker", message);
+    console.log("Message received from service worker:", message);
 
     if (message.action === "initializeConfig") {
       tabId = message.tabId;

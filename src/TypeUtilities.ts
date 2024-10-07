@@ -1,5 +1,5 @@
 type Primitive = string | number | boolean | null | undefined;
-type Function = (...args: any[]) => unknown;
+export type Function = (...args: any[]) => unknown;
 
 export type ApiWrapper<T> = {
   [K in keyof T]: T[K] extends Function
@@ -9,27 +9,45 @@ export type ApiWrapper<T> = {
     : ApiWrapper<T[K]>;
 };
 
-export function createObjectWrapper<T>(
-  messageHandler: (functionPath: string[], ...args: any[]) => Promise<any>,
+export function createObjectWrapperWithCallbackRegistry<T>(
+  invocationHandler: (functionPath: string[], ...args: any[]) => any,
   path: string[],
-  callbackRegistry?: Map<string, Function> | undefined
+  callbackRegistry: Map<string, Function>
 ): T {
   const handler = {
     get(target: any, prop: string) {
       const newPath = [...path, prop];
-      return createObjectWrapper(messageHandler, newPath, callbackRegistry);
+      return createObjectWrapperWithCallbackRegistry(invocationHandler, newPath, callbackRegistry);
     },
     apply(target: any, thisArg: any, args: any[]) {
       // Wrap function arguments
       if (callbackRegistry === undefined) {
-        return messageHandler(path, ...args);
+        return invocationHandler(path, ...args);
       }
       const wrappedArgs = args.map((arg: any) =>
         typeof arg === "function"
-          ? wrapCallback(arg, messageHandler, callbackRegistry)
+          ? wrapCallback(arg, callbackRegistry)
           : arg
       );
-      return messageHandler(path, ...wrappedArgs);
+      return invocationHandler(path, ...wrappedArgs);
+    },
+  };
+
+  return new Proxy(function () {}, handler) as T;
+}
+
+export function createObjectWrapper<T>(
+  invocationHandler: (functionPath: string[], ...args: any[]) => any,
+  path: string[]
+): T {
+  const handler = {
+    get(target: any, prop: string) {
+      const newPath = [...path, prop];
+      return createObjectWrapper(invocationHandler, newPath);
+    },
+    apply(target: any, thisArg: any, args: any[]) {
+      // Wrap function arguments
+      return invocationHandler(path, ...args);
     },
   };
 
@@ -38,7 +56,6 @@ export function createObjectWrapper<T>(
 
 function wrapCallback(
   callback: Function,
-  messageHandler: Function,
   callbackRegistry: Map<string, Function>
 ): string {
   // Generate a unique ID for this callback

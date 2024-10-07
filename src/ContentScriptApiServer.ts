@@ -10,14 +10,14 @@ export function createContentScriptApiServer<T extends object>(
         request.sandboxTabId
       );
       return createFunctionCall(
-        request.messageType,
+        request.functionPath,
         payload,
         globalContext,
         sendResponse
       );
     }
     return createFunctionCall(
-      request.messageType,
+      request.functionPath,
       request.payload,
       contentScriptApi,
       sendResponse
@@ -68,23 +68,6 @@ function stringifyEvent(e: any) {
     },
     " "
   );
-}
-
-function serializeObject(obj: any): any {
-  const simpleObject: any = {};
-  for (let prop in obj) {
-    if (obj.hasOwnProperty(prop)) {
-      try {
-        simpleObject[prop] =
-          typeof obj[prop] === "object"
-            ? serializeObject(obj[prop])
-            : obj[prop];
-      } catch (e) {
-        simpleObject[prop] = undefined;
-      }
-    }
-  }
-  return simpleObject;
 }
 
 function createFunctionCall(

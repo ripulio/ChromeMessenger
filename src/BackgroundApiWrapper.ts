@@ -1,5 +1,5 @@
-import { createObjectWrapper } from "./TypeUtilities";
-
+import { createObjectWrapper, createObjectWrapperWithCallbackRegistry } from "./TypeUtilities";
+import { Function } from "./TypeUtilities";
 export function createBackgroundApiWrapper<T>(): T {
   const messageHandler = (
     functionPath: string[],
@@ -25,32 +25,40 @@ export function createProxyObjectForSandboxContext<T>(
   tabId: number | undefined,
   callbackRegistry: Map<string, Function>
 ): T {
-  const messageHandler = (
+  const invocationHandler = (
     functionPath: string[],
     ...args: any[]
-  ): Promise<any> => {
-    return new Promise((resolve, reject) => {
-      const message = {
-        messageType: functionPath,
-        payload: args,
-        source: "sandbox",
-        destination: "content",
-        targetTabId: tabId,
-      };
+  ): any => {
+    const correlationId = generateUniqueId();
 
-      for (const key in message.payload) {
-        if (typeof message.payload[key] === "function") {
-          message.payload[key] = message.payload[key].toString();
-        }
+    const message = {
+      correlationId: correlationId,
+      messageType: "ProxyInvocation",
+      functionPath: functionPath,
+      payload: args,
+      source: "sandbox",
+      destination: "content",
+      targetTabId: tabId,
+    };
+
+    for (const key in message.payload) {
+      if (typeof message.payload[key] === "function") {
+        message.payload[key] = message.payload[key].toString();
       }
-      console.log(`Sending message: ${JSON.stringify(message)}`);
-      window.parent.postMessage(message, "*");
-    });
+    }
+
+    console.log(`Sending message: ${JSON.stringify(message)}`);
+    window.parent.postMessage(message, "*");
+
   };
 
-  return createObjectWrapper<T>(
-    messageHandler,
+  return createObjectWrapperWithCallbackRegistry<T>(
+    invocationHandler,
     [],
-    callbackRegistry as Map<string, (...args: any[]) => unknown>
+    callbackRegistry
   ) as T;
+}
+
+function generateUniqueId(): string {
+  return Math.random().toString(36).substr(2, 9);
 }
