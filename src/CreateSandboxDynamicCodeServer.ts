@@ -1,7 +1,7 @@
-import { createProxyObjectForSandboxContext } from "./BackgroundApiWrapper";
+import { createProxyObjectForSandboxContext } from "./CreateProxyObjectForSandboxContext";
 import { Function } from "./TypeUtilities";
 
-let tabId: number | undefined;
+
 const callbackRegistry = new Map<string, Function>();
 
 export function createSandboxDynamicCodeServer(
@@ -15,8 +15,7 @@ export function createSandboxDynamicCodeServer(
   window.addEventListener("message", (event) => {
     // initialization message, set config
     if (event.data.messageType === "initializeConfig") {
-      tabId = event.data.tabId;
-      console.log("Setting tabId:", tabId);
+      console.log("initializeConfig iframe", event.data);
       return;
     }
 
@@ -40,7 +39,7 @@ export function createSandboxDynamicCodeServer(
     // unknown function call, allow handling by consumer
     const proxies = createProxyObjectForSandboxContext<
       Window & typeof globalThis
-    >(tabId, callbackRegistry);
+    >(callbackRegistry);
 
     handler(event, proxies);
   });

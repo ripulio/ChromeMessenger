@@ -19,7 +19,7 @@ export function createBackgroundApiServer<T extends object>(
     }
 
     if (request.source === "sandbox") {
-      const destinationTab = request.targetTabId;
+      const destinationTab = request.contentScriptTabId;
       // forward to content script for active page
       chrome.tabs.sendMessage(destinationTab, request, (response) => {
         sendResponse(response);

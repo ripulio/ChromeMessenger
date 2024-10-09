@@ -16,6 +16,7 @@ export function createContentScriptApiServer<T extends object>(
         sendResponse
       );
     }
+
     return createFunctionCall(
       request.functionPath,
       request.payload,
@@ -96,17 +97,43 @@ function createFunctionCall(
   if (typeof functionToCall === "function") {
     Promise.resolve(functionToCall.apply(currentTarget, payload))
       .then((result) => {
-        sendResponse(result);
+        sendResponse(createResponse(result));
       })
       .catch((error) => {
         console.error(`Error in ${messagePath.join(".")}:`, error);
-        sendResponse({ error: error.message });
+        sendResponse(createResponse({ error: error.message }));
       });
   } else {
     // if it's not a function, then it should be a value
-    sendResponse(functionToCall);
+    sendResponse(createResponse(functionToCall));
   }
 
   // Return true to indicate that we will send a response asynchronously
   return true;
+}
+
+// Define the types
+export type ObjectReferenceResponse = {
+  data: any;
+  proxyWrap: boolean;
+  messageType: "objectReferenceResponse";
+};
+
+function createResponse(result: any): ObjectReferenceResponse {
+
+  return {
+    data: result,
+    proxyWrap: result !== undefined && ( hasPrototype(result) || hasMethods(result)),
+    messageType: "objectReferenceResponse"
+  };
+}
+
+function hasPrototype(obj: any): boolean {
+  return Object.getPrototypeOf(obj) !== null && Object.getPrototypeOf(obj) !== Object.prototype;
+}
+
+function hasMethods(obj: any): boolean {
+  return Object.getOwnPropertyNames(Object.getPrototypeOf(obj))
+    .filter(prop => typeof obj[prop] === 'function')
+    .length > 0;
 }

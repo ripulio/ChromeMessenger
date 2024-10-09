@@ -13,8 +13,6 @@ export function createContentScriptApiWrapper<T>(): TabTargetApiWrapper<T> {
           payload: args,
         };
 
-        let response: any | undefined = undefined;
-        let error: chrome.runtime.LastError | undefined = undefined;
         console.log(`Sending message: ${JSON.stringify(message)}`);
         chrome.tabs.sendMessage(tabId, message, (response) => {
           if (chrome.runtime.lastError) {
@@ -24,18 +22,7 @@ export function createContentScriptApiWrapper<T>(): TabTargetApiWrapper<T> {
           }
         });
 
-        function waitForResponse() {
-          if (error !== undefined) {
-            throw error;
-          }
-
-          if (response === undefined) {
-            setTimeout(waitForResponse, 5);
-          }
-
-          return response;
-        }
-        return waitForResponse();
+        return;
       };
       return createObjectWrapper<T>(messageHandler, []) as T;
     },

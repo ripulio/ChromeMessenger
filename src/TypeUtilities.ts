@@ -17,7 +17,11 @@ export function createObjectWrapperWithCallbackRegistry<T>(
   const handler = {
     get(target: any, prop: string) {
       const newPath = [...path, prop];
-      return createObjectWrapperWithCallbackRegistry(invocationHandler, newPath, callbackRegistry);
+      return createObjectWrapperWithCallbackRegistry(
+        invocationHandler,
+        newPath,
+        callbackRegistry
+      );
     },
     apply(target: any, thisArg: any, args: any[]) {
       // Wrap function arguments
@@ -25,11 +29,40 @@ export function createObjectWrapperWithCallbackRegistry<T>(
         return invocationHandler(path, ...args);
       }
       const wrappedArgs = args.map((arg: any) =>
-        typeof arg === "function"
-          ? wrapCallback(arg, callbackRegistry)
-          : arg
+        typeof arg === "function" ? wrapCallback(arg, callbackRegistry) : arg
       );
       return invocationHandler(path, ...wrappedArgs);
+    },
+  };
+
+  return new Proxy(function () {}, handler) as T;
+}
+
+export function createObjectWrapperWithImmediateProperties<T>(
+  invocationHandler: (functionPath: string[], ...args: any[]) => any,
+  initialObject: Partial<T>,
+  callbackRegistry: Map<string, Function> = new Map()
+): T {
+  const handler = {
+    get(target: any, prop: string) {
+      // Check if the property exists in the initialObject
+      if (prop in initialObject) {
+        return initialObject[prop as keyof Partial<T>];
+      }
+
+      // If not, create a new proxy for this property
+      return createObjectWrapperWithCallbackRegistry(
+        invocationHandler,
+        [prop],
+        callbackRegistry
+      );
+    },
+    apply(target: any, thisArg: any, args: any[]) {
+      // Wrap function arguments
+      const wrappedArgs = args.map((arg: any) =>
+        typeof arg === "function" ? wrapCallback(arg, callbackRegistry) : arg
+      );
+      return invocationHandler([], ...wrappedArgs);
     },
   };
 
@@ -67,5 +100,5 @@ function wrapCallback(
 }
 
 function generateUniqueId(): string {
-  return Math.random().toString(36).substr(2, 9);
+  return Math.random().toString(36).slice(2, 11);
 }
