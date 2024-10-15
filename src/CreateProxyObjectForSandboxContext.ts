@@ -1,17 +1,76 @@
 import { createObjectWrapperWithCallbackRegistry } from "./TypeUtilities";
 import { Function } from "./TypeUtilities";
 
-export function createProxyObjectForSandboxContext<T>(
-  callbackRegistry: Map<string, Function>
+export function createProxyObjectFactoryForSandboxContext<T>(
+  callbackRegistry: Map<string, Function>,
+  waitForResponse: () => any
 ): T {
-  return createObjectWrapperWithCallbackRegistry<T>(
-    invocationHandler,
-    [],
-    callbackRegistry
+  return createObjectWrapperFactory<T>(
+    functionInvocationHandler,
+    propertyAccessHandler,
+    callbackRegistry,
+    waitForResponse,
   ) as T;
 }
 
-function invocationHandler(functionPath: string[], ...args: any[]): any {
+export function createProxyObjectForSandboxContext<T>(
+  callbackRegistry: Map<string, Function>,
+  object: Partial<T>,
+  
+): T {
+  return createObjectWrapperWithCallbackRegistry(
+    functionInvocationHandler,
+    propertyAccessHandler,
+    [],
+    callbackRegistry,
+    object
+  );
+}
+
+export function createObjectWrapperFactory<T>(
+  invocationHandler: (functionPath: string[], ...args: any[]) => any,
+  propertyAccessHandler: (path: string[]) => any,
+  callbackRegistry: Map<string, Function>,
+  waitForResponse: () => any
+): T {
+  const handler = {
+    get(target: any, prop: string) {
+      return createObjectWrapperWithCallbackRegistry(
+        withWaitForResponse(waitForResponse, invocationHandler),
+        withWaitForResponse(waitForResponse, propertyAccessHandler),
+        [prop],
+        callbackRegistry,
+      );
+    },
+  };
+
+  return new Proxy(function () {}, handler) as T;
+}
+
+function withWaitForResponse(waitForResponse: () => any, handler: (path: string[]) => any): (path: string[]) => any {
+  return (path: string[]) => {
+    handler(path);
+    return waitForResponse();
+  };
+}
+
+
+function propertyAccessHandler(path: string[]): any {
+  const correlationId = generateUniqueId();
+
+  const message = {
+    correlationId: correlationId,
+    messageType: "ProxyPropertyAccess",
+    functionPath: path,
+    source: "sandbox",
+    destination: "content",
+  };
+  
+  console.log(`Sending message: ${JSON.stringify(message)}`);
+  window.parent.postMessage(message, "*",);
+}
+
+function functionInvocationHandler(functionPath: string[], ...args: any[]): any {
   const correlationId = generateUniqueId();
 
   const message = {
@@ -31,22 +90,6 @@ function invocationHandler(functionPath: string[], ...args: any[]): any {
 
   console.log(`Sending message: ${JSON.stringify(message)}`);
   window.parent.postMessage(message, "*",);
-
-  let response: any | undefined = undefined;
-  let error: chrome.runtime.LastError | undefined = undefined;
-  return;
-  // WIP
-  function waitForResponse() {
-    if (error !== undefined) {
-      throw error;
-    }
-
-    if (response === undefined) {
-      setTimeout(waitForResponse, 5);
-    }
-
-    return response;
-  }
 }
 
 export function generateUniqueId(): string {

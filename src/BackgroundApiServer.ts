@@ -1,3 +1,6 @@
+// mapping of port to tabId
+const tabIdToPort = new Map<number, MessagePort>();
+
 export function createBackgroundApiServer<T extends object>(
   backgroundApi: T
 ): void {
@@ -18,16 +21,30 @@ export function createBackgroundApiServer<T extends object>(
       return;
     }
 
+    // MessageType: "ProxyPropertyAccess" or "ProxyInvocation"
     if (request.source === "sandbox") {
+
+      if (request.messageType === "portRegistration") {
+        console.log("portRegistration", request.port);
+        const typedPort = request.port as MessagePort;
+        tabIdToPort.set(request.sandboxTabId, typedPort);
+        return false;
+      }
+
       const destinationTab = request.contentScriptTabId;
       // forward to content script for active page
       chrome.tabs.sendMessage(destinationTab, request, (response) => {
-        sendResponse(response);
+        console.log("Invocation response", response);
+        // instead of sending response back to sandbox, send it to the port
+        const port = tabIdToPort.get(request.sandboxTabId);
+        if (port) {
+          port.postMessage(response);
+        }
       });
       // return here or wait for the response to propogate? 
-      return;
+      return false;
     }
-    
+
     const messagePath: string[] = request.messageType;
 
     let target: any = backgroundApi;
@@ -38,7 +55,7 @@ export function createBackgroundApiServer<T extends object>(
       }
       target = target[messagePath[i]];
     }
-
+    
     const functionName = messagePath[messagePath.length - 1];
     const functionToCall = target[functionName];
 

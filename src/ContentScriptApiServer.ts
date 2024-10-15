@@ -4,20 +4,39 @@ export function createContentScriptApiServer<T extends object>(
 ): void {
   chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (request.source === "sandbox") {
-      const payload = mutatePayload(
-        request.payload,
-        globalContext,
-        request.sandboxTabId
-      );
-      return createFunctionCall(
-        request.functionPath,
-        payload,
-        globalContext,
-        sendResponse
-      );
+      switch (request.messageType) {
+        case "ProxyPropertyAccess":
+          executePropertyAccess(
+            request.functionPath,
+            globalContext,
+            request.sandboxTabId,
+            sendResponse
+          );
+          break;
+
+        case "ProxyInvocation":
+          executeFunctionCall(
+            request.functionPath,
+            injectCallbackPropogation(
+              request.payload,
+              globalContext,
+              request.sandboxTabId
+            ),
+            globalContext,
+            sendResponse
+          );
+          break;
+
+        default:
+          console.warn(
+            `Unhandled sandbox message type: ${request.messageType}`
+          );
+      }
+      return;
     }
 
-    return createFunctionCall(
+    // Handle non-sandbox messages
+    executeFunctionCall(
       request.functionPath,
       request.payload,
       contentScriptApi,
@@ -26,7 +45,34 @@ export function createContentScriptApiServer<T extends object>(
   });
 }
 
-function mutatePayload(
+const objectStore = new Map<string, any>();
+let nextObjectId = 1;
+
+function executePropertyAccess(
+  path: string[],
+  globalContext: typeof globalThis,
+  sandboxTabId: number,
+  sendResponse: (response: any) => void
+) {
+  function traversePath(path: string[]) {
+    return path.reduce((current, key) => {
+      if (current === undefined) return undefined;
+      // Check if the key exists in globalObject
+      if (key in globalContext) {
+        return (globalContext as any)[key];
+      }
+      // If not, continue traversing the current object
+      return (current as any)[key];
+    }, globalContext);
+  }
+
+  const result = traversePath(path);
+
+  const response = createResponse(result);
+  sendResponse(response);
+}
+
+function injectCallbackPropogation(
   payload: any,
   globalContext: typeof globalThis,
   sandboxTabId: number
@@ -71,7 +117,7 @@ function stringifyEvent(e: any) {
   );
 }
 
-function createFunctionCall(
+function executeFunctionCall(
   messagePath: string[],
   payload: any,
   target: any,
@@ -97,15 +143,17 @@ function createFunctionCall(
   if (typeof functionToCall === "function") {
     Promise.resolve(functionToCall.apply(currentTarget, payload))
       .then((result) => {
-        sendResponse(createResponse(result));
+        const response = createResponse(result);
+        sendResponse(response);
       })
       .catch((error) => {
         console.error(`Error in ${messagePath.join(".")}:`, error);
         sendResponse(createResponse({ error: error.message }));
       });
   } else {
+    const response = createResponse(functionToCall);
     // if it's not a function, then it should be a value
-    sendResponse(createResponse(functionToCall));
+    sendResponse(response);
   }
 
   // Return true to indicate that we will send a response asynchronously
@@ -115,25 +163,43 @@ function createFunctionCall(
 // Define the types
 export type ObjectReferenceResponse = {
   data: any;
-  proxyWrap: boolean;
   messageType: "objectReferenceResponse";
+  objectId?: string | undefined;
 };
 
 function createResponse(result: any): ObjectReferenceResponse {
-
-  return {
+  let resultMessage: ObjectReferenceResponse = {
     data: result,
-    proxyWrap: result !== undefined && ( hasPrototype(result) || hasMethods(result)),
-    messageType: "objectReferenceResponse"
+    messageType: "objectReferenceResponse",
   };
+
+  if (shouldStoreObjectReference(result)) {
+    // Generate a unique ID and store the result
+    const objectId = `obj_${nextObjectId++}`;
+    objectStore.set(objectId, result);
+    resultMessage.objectId = objectId;
+  }
+
+  return resultMessage;
 }
 
 function hasPrototype(obj: any): boolean {
-  return Object.getPrototypeOf(obj) !== null && Object.getPrototypeOf(obj) !== Object.prototype;
+  return (
+    Object.getPrototypeOf(obj) !== null &&
+    Object.getPrototypeOf(obj) !== Object.prototype
+  );
+}
+
+function shouldStoreObjectReference(obj: any): boolean {
+  return (
+    obj !== undefined && obj !== null && (hasPrototype(obj) || hasMethods(obj))
+  );
 }
 
 function hasMethods(obj: any): boolean {
-  return Object.getOwnPropertyNames(Object.getPrototypeOf(obj))
-    .filter(prop => typeof obj[prop] === 'function')
-    .length > 0;
+  return (
+    Object.getOwnPropertyNames(Object.getPrototypeOf(obj)).filter(
+      (prop) => typeof obj[prop] === "function"
+    ).length > 0
+  );
 }
