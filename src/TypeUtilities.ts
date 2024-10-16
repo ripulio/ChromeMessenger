@@ -9,20 +9,74 @@ export type ApiWrapper<T> = {
     : ApiWrapper<T[K]>;
 };
 
-
-
 export function createObjectWrapperWithCallbackRegistry<T>(
-  invocationHandler: (functionPath: string[], ...args: any[]) => any,
-  propertyAccessHandler: (path: string[]) => any,
+  invocationHandler: (functionPath: string[], ...args: any[]) => Promise<any>,
+  propertyAccessHandler: (path: string[]) => Promise<any>,
   path: string[],
   callbackRegistry: Map<string, Function>,
   initialObject?: Partial<T> | undefined,
 ): T {
   const handler = {
-    get(target: any, prop: string) {
-      // handle any well-serialized properties with immediate values
+    get(target: any, prop: string, reciever: any) {
+      //console.log("reciever", typeof reciever[prop as keyof T]);
+      console.log("target", typeof target[prop as keyof T]);
+      console.log("target raw", target);
+      console.log("reciever raw", reciever);
       if (initialObject && prop in initialObject) {
         return initialObject[prop as keyof Partial<T>];
+      }
+
+      const newPath = [...path, prop];
+
+      // Return a function that can be called
+      return (...args: any[]) => {
+        const wrappedArgs = args.map((arg: any) =>
+          typeof arg === "function" ? wrapCallback(arg, callbackRegistry) : arg
+        );
+        return invocationHandler(newPath, ...wrappedArgs);
+      };
+    },
+  };
+
+  return new Proxy({} as T, handler) as unknown as T;
+}
+
+export function createFunctionWrapperWithCallbackRegistry(
+  invocationHandler: (functionPath: string[], ...args: any[]) => Promise<any>,
+  functionPath: string[],
+  callbackRegistry: Map<string, Function>,
+): Function {
+  const handler = {
+    apply(target: any, thisArg: any, args: any[]) {
+      const wrappedArgs = args.map((arg: any) =>
+        typeof arg === "function" ? wrapCallback(arg, callbackRegistry) : arg
+      );
+      return invocationHandler(functionPath, ...wrappedArgs);
+    }
+  }
+  return new Proxy(function () {}, handler) as Function;
+}
+
+export function createObjectWrapperWithCallbackRegistry2<T>(
+  invocationHandler: (functionPath: string[], ...args: any[]) => Promise<any>,
+  propertyAccessHandler: (path: string[]) => Promise<any>,
+  path: string[],
+  callbackRegistry: Map<string, Function>,
+  initialObject?: Partial<T> | undefined,
+): T {
+  const handler = {
+    get(target: any, prop: string, reciever: any) {
+      if (initialObject && prop in initialObject) {
+        return initialObject[prop as keyof Partial<T>];
+      }
+
+      if (typeof target[prop] === 'function') {
+        return function(...args: any[]){
+          const wrappedArgs = args.map((arg: any) =>
+            typeof arg === "function" ? wrapCallback(arg, callbackRegistry) : arg
+          );
+          return invocationHandler(path, ...wrappedArgs);
+        }
       }
 
       const newPath = [...path, prop];

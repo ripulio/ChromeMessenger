@@ -34,7 +34,7 @@ export function createSandboxProxyServer(iframeId: string) {
         console.error("No sandbox window found - cannot send iframe initialization message.");
         return;
       }
-      sandboxWindow.postMessage({...message, callbackWorkerUrl: chrome.runtime.getURL("SharedMemoryCallbackWorker.js")}, "*");
+      sandboxWindow.postMessage({...message}, "*");
       sendResponse({ success: true });
       return false;
     }

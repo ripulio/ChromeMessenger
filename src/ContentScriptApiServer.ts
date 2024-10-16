@@ -10,6 +10,7 @@ export function createContentScriptApiServer<T extends object>(
             request.functionPath,
             globalContext,
             request.sandboxTabId,
+            request.correlationId,
             sendResponse
           );
           break;
@@ -23,6 +24,7 @@ export function createContentScriptApiServer<T extends object>(
               request.sandboxTabId
             ),
             globalContext,
+            request.correlationId,
             sendResponse
           );
           break;
@@ -32,7 +34,8 @@ export function createContentScriptApiServer<T extends object>(
             `Unhandled sandbox message type: ${request.messageType}`
           );
       }
-      return;
+
+      return true;
     }
 
     // Handle non-sandbox messages
@@ -40,8 +43,10 @@ export function createContentScriptApiServer<T extends object>(
       request.functionPath,
       request.payload,
       contentScriptApi,
+      request.correlationId,
       sendResponse
     );
+    return true;
   });
 }
 
@@ -52,6 +57,7 @@ function executePropertyAccess(
   path: string[],
   globalContext: typeof globalThis,
   sandboxTabId: number,
+  correlationId: string,
   sendResponse: (response: any) => void
 ) {
   function traversePath(path: string[]) {
@@ -68,7 +74,7 @@ function executePropertyAccess(
 
   const result = traversePath(path);
 
-  const response = createResponse(result);
+  const response = createResponse(result, correlationId);
   sendResponse(response);
 }
 
@@ -121,6 +127,7 @@ function executeFunctionCall(
   messagePath: string[],
   payload: any,
   target: any,
+  correlationId: string,
   sendResponse: (response: any) => void
 ): boolean {
   let currentTarget = target;
@@ -141,23 +148,28 @@ function executeFunctionCall(
   }
 
   if (typeof functionToCall === "function") {
-    Promise.resolve(functionToCall.apply(currentTarget, payload))
-      .then((result) => {
-        const response = createResponse(result);
-        sendResponse(response);
-      })
-      .catch((error) => {
-        console.error(`Error in ${messagePath.join(".")}:`, error);
-        sendResponse(createResponse({ error: error.message }));
-      });
+    const result = functionToCall.apply(currentTarget, payload);
+    if (result instanceof Promise) {
+      result
+        .then((resolvedResult) => {
+          const response = createResponse(resolvedResult, correlationId);
+          sendResponse(response);
+        })
+        .catch((error) => {
+          console.error(`Error in ${messagePath.join(".")}:`, error);
+          sendResponse(createResponse({ error: error.message }, correlationId));
+        });
+      return true; // Indicate that we will send a response asynchronously
+    } else {
+      const response = createResponse(result, correlationId);
+      sendResponse(response);
+      return false; // Indicate that we've already sent the response
+    }
   } else {
-    const response = createResponse(functionToCall);
-    // if it's not a function, then it should be a value
+    const response = createResponse(functionToCall, correlationId);
     sendResponse(response);
+    return false; // Indicate that we've already sent the response
   }
-
-  // Return true to indicate that we will send a response asynchronously
-  return true;
 }
 
 // Define the types
@@ -165,12 +177,14 @@ export type ObjectReferenceResponse = {
   data: any;
   messageType: "objectReferenceResponse";
   objectId?: string | undefined;
+  correlationId: string;
 };
 
-function createResponse(result: any): ObjectReferenceResponse {
+function createResponse(result: any, correlationId: string): ObjectReferenceResponse {
   let resultMessage: ObjectReferenceResponse = {
     data: result,
     messageType: "objectReferenceResponse",
+    correlationId: correlationId
   };
 
   if (shouldStoreObjectReference(result)) {
