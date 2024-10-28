@@ -147,26 +147,30 @@ function executeFunctionCall(
     throw new Error(`${messagePath.join(".")} not found on target`);
   }
 
-  if (typeof functionToCall === "function") {
-    const result = functionToCall.apply(currentTarget, payload);
-    if (result instanceof Promise) {
-      result
-        .then((resolvedResult) => {
-          const response = createResponse(resolvedResult, correlationId);
-          sendResponse(response);
-        })
-        .catch((error) => {
-          console.error(`Error in ${messagePath.join(".")}:`, error);
-          sendResponse(createResponse({ error: error.message }, correlationId));
-        });
-      return true; // Indicate that we will send a response asynchronously
-    } else {
-      const response = createResponse(result, correlationId);
-      sendResponse(response);
-      return false; // Indicate that we've already sent the response
-    }
-  } else {
+  if (typeof functionToCall !== "function") {
+    // its a property access
+    console.log("Property access", functionToCall);
     const response = createResponse(functionToCall, correlationId);
+    sendResponse(response);
+    return false; // Indicate that we've already sent the response
+  }
+
+  console.log("Executing function", functionToCall, payload);
+  const result = functionToCall.apply(currentTarget, payload);
+  if (result instanceof Promise) {
+    result
+      .then((resolvedResult) => {
+        console.log("Result for function", functionToCall, resolvedResult);
+        const response = createResponse(resolvedResult, correlationId);
+        sendResponse(response);
+      })
+      .catch((error) => {
+        console.error(`Error in ${messagePath.join(".")}:`, error);
+        sendResponse(createResponse({ error: error.message }, correlationId));
+      });
+    return true; // Indicate that we will send a response asynchronously
+  } else {
+    const response = createResponse(result, correlationId);
     sendResponse(response);
     return false; // Indicate that we've already sent the response
   }
@@ -180,11 +184,14 @@ export type ObjectReferenceResponse = {
   correlationId: string;
 };
 
-function createResponse(result: any, correlationId: string): ObjectReferenceResponse {
+function createResponse(
+  result: any,
+  correlationId: string
+): ObjectReferenceResponse {
   let resultMessage: ObjectReferenceResponse = {
     data: result,
     messageType: "objectReferenceResponse",
-    correlationId: correlationId
+    correlationId: correlationId,
   };
 
   if (shouldStoreObjectReference(result)) {

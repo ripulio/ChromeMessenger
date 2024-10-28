@@ -10,30 +10,38 @@ export type ApiWrapper<T> = {
 };
 
 export function createObjectWrapperWithCallbackRegistry<T>(
-  invocationHandler: (functionPath: string[], ...args: any[]) => Promise<any>,
-  propertyAccessHandler: (path: string[]) => Promise<any>,
+  invocationHandler: (
+    functionPath: string[],
+    node: keyof T,
+    ...args: any[]
+  ) => Promise<T[keyof T]>,
+  propertyAccessHandler: (
+    functionPath: string[],
+    node: keyof T
+  ) => Promise<T[keyof T]>,
   path: string[],
   callbackRegistry: Map<string, Function>,
-  initialObject?: Partial<T> | undefined,
+  referenceState: T,
+  initialObject?: Partial<T> | undefined
 ): T {
   const handler = {
-    get(target: any, prop: string, reciever: any) {
-      //console.log("reciever", typeof reciever[prop as keyof T]);
-      console.log("target", typeof target[prop as keyof T]);
-      console.log("target raw", target);
-      console.log("reciever raw", reciever);
+    get(target: any, prop: string) {
       if (initialObject && prop in initialObject) {
         return initialObject[prop as keyof Partial<T>];
       }
 
       const newPath = [...path, prop];
 
-      // Return a function that can be called
+      if (prop === "then") {
+        console.error("then called directly on object in get trap", newPath);
+        return Promise.resolve();
+      }
+
       return (...args: any[]) => {
         const wrappedArgs = args.map((arg: any) =>
           typeof arg === "function" ? wrapCallback(arg, callbackRegistry) : arg
         );
-        return invocationHandler(newPath, ...wrappedArgs);
+        return invocationHandler(path, prop as keyof T, ...wrappedArgs);
       };
     },
   };
@@ -41,57 +49,27 @@ export function createObjectWrapperWithCallbackRegistry<T>(
   return new Proxy({} as T, handler) as unknown as T;
 }
 
-export function createFunctionWrapperWithCallbackRegistry(
-  invocationHandler: (functionPath: string[], ...args: any[]) => Promise<any>,
+
+
+export function createFunctionWrapperWithCallbackRegistry<T>(
+  invocationHandler: (
+    functionPath: string[],
+    node: keyof T,
+    ...args: any[]
+  ) => Promise<any>,
   functionPath: string[],
-  callbackRegistry: Map<string, Function>,
+  node: keyof T,
+  callbackRegistry: Map<string, Function>
 ): Function {
   const handler = {
     apply(target: any, thisArg: any, args: any[]) {
       const wrappedArgs = args.map((arg: any) =>
         typeof arg === "function" ? wrapCallback(arg, callbackRegistry) : arg
       );
-      return invocationHandler(functionPath, ...wrappedArgs);
-    }
-  }
-  return new Proxy(function () {}, handler) as Function;
-}
-
-export function createObjectWrapperWithCallbackRegistry2<T>(
-  invocationHandler: (functionPath: string[], ...args: any[]) => Promise<any>,
-  propertyAccessHandler: (path: string[]) => Promise<any>,
-  path: string[],
-  callbackRegistry: Map<string, Function>,
-  initialObject?: Partial<T> | undefined,
-): T {
-  const handler = {
-    get(target: any, prop: string, reciever: any) {
-      if (initialObject && prop in initialObject) {
-        return initialObject[prop as keyof Partial<T>];
-      }
-
-      if (typeof target[prop] === 'function') {
-        return function(...args: any[]){
-          const wrappedArgs = args.map((arg: any) =>
-            typeof arg === "function" ? wrapCallback(arg, callbackRegistry) : arg
-          );
-          return invocationHandler(path, ...wrappedArgs);
-        }
-      }
-
-      const newPath = [...path, prop];
-      return propertyAccessHandler(newPath);
-    },
-    apply(target: any, thisArg: any, args: any[]) {
-      // Wrap function arguments
-      const wrappedArgs = args.map((arg: any) =>
-        typeof arg === "function" ? wrapCallback(arg, callbackRegistry) : arg
-      );
-      return invocationHandler(path, ...wrappedArgs);
+      return invocationHandler(functionPath, node, ...wrappedArgs);
     },
   };
-
-  return new Proxy(function () {}, handler) as T;
+  return new Proxy(function () {}, handler) as Function;
 }
 
 export function createObjectWrapper<T>(
@@ -127,3 +105,31 @@ function wrapCallback(
 function generateUniqueId(): string {
   return Math.random().toString(36).slice(2, 11);
 }
+
+type PromisifyFunction<T> = T extends (...args: infer A) => infer R
+  ? R extends Promise<any>
+    ? T
+    : (...args: A) => Promise<R>
+  : never;
+
+type PromisifyProperty<T> = T extends Function 
+  ? PromisifyFunction<T>
+  : T extends object
+    ? PromiseWrapNamespace<T>
+    : Promise<T>;
+
+type PromiseWrapNamespace<T> = {
+  [K in keyof T as `ripul_${string & K}`]: PromisifyProperty<T[K]>
+};
+
+type ChromePromise<T> = PromiseWrapNamespace<T>;
+
+type DeepChromePromise<T> = {
+  [K in keyof T]: ChromePromise<T[K]>;
+};
+
+export interface ChromeAsync extends DeepChromePromise<typeof chrome>{};
+export interface WindowAsync extends DeepChromePromise<typeof window>{};
+
+
+export {};

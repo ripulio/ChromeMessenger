@@ -1,6 +1,8 @@
+/// <reference path="./chrome-global.d.ts" />
+
 export { createContentScriptApiWrapper } from './ContentScriptApiWrapper';
 export { createContentScriptApiServer} from './ContentScriptApiServer';
 export { createBackgroundApiServer } from './BackgroundApiServer';
 export { createBackgroundApiWrapper} from './BackgroundApiWrapper';
 export { createSandboxProxyServer } from './CreateSandboxProxyServer';
-export { ApiWrapper } from './TypeUtilities';
+export * from './TypeUtilities';

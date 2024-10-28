@@ -1,7 +1,25 @@
-import { createProxyObjectFactoryForSandboxContext } from "./CreateProxyObjectForSandboxContext";
+import { createProxyObjectFactoryForSandboxContext, createProxyObjectForSandboxContext } from "./CreateProxyObjectForSandboxContext";
 import { Function } from "./TypeUtilities";
 
-const callbackRegistry = new Map<string, Function>();
+const pendingPromises = new Map<string, (arg: any) => void>();
+
+export function waitForResponse<T>(correlationId: string): Promise<T[keyof T]> {
+  const promise = new Promise<T[keyof T]>((resolve, reject) => {
+    pendingPromises.set(correlationId, resolve);
+    // todo handle timeout
+  });
+  return promise;
+}
+
+/*
+export function waitForResponse(correlationId: string): Promise<any> {
+  const promise = new Promise((resolve, reject) => {
+    pendingPromises.set(correlationId, resolve);
+    // todo handle timeout
+  });
+  return promise;
+}
+*/
 
 export function createSandboxDynamicCodeServer(
   handler: (
@@ -10,18 +28,20 @@ export function createSandboxDynamicCodeServer(
   ) => void
 ) {
   console.log("creating server");
-
+  const callbackRegistry = new Map<string, Function>();
+  // TOOD: consolidate event listeners on sandbox iframe
+  const referenceState = window as Window & typeof globalThis;
   window.addEventListener("message", (event) => {
     console.log("Recieved message in sandbox", event.data);
     // initialization message, set config
-    if (event.data.messageType === "initializeConfig") {
+    if (event.data?.messageType === "initializeConfig") {
       console.log("initializeConfig iframe", event.data);
       return;
     }
 
     // callback from content script, execute against
     // callback registry
-    if (event.data.messageType === "sandboxCallback") {
+    if (event.data?.messageType === "sandboxCallback") {
       const callbackReference = event.data.callbackReference;
       const callbackId = callbackReference.split("|")[1];
       const callback = callbackRegistry.get(callbackId);
@@ -36,24 +56,21 @@ export function createSandboxDynamicCodeServer(
       console.error("No callback found for ", callbackReference);
     } 
 
-    /*
-    //event listener for object reference response is 
-    //currently listened to in createProxyObjectForSandboxContext.waitForResponse
 
-    if (event.data.messageType === "objectReferenceResponse"){
-      const object = event.data;
-      if (!object){
-
+    if (event.data?.messageType === "objectReferenceResponse") {
+      const correlationId = event.data.correlationId;
+      if (pendingPromises.has(correlationId)) {
+        const proxy = createProxyObjectForSandboxContext(callbackRegistry, referenceState, event.data);
+        pendingPromises.get(correlationId)?.(proxy);
+        pendingPromises.delete(correlationId);
       }
-      const proxyObject = createProxyObjectForSandboxContext(callbackRegistry, object);
-      console.log("proxyObject", proxyObject);
       return;
     }
-    */
+
     // unknown function call, allow handling by consumer
     const proxies = createProxyObjectFactoryForSandboxContext<
       Window & typeof globalThis
-    >(callbackRegistry, window as Window & typeof globalThis);
+    >(callbackRegistry, referenceState);
 
     handler(event, proxies);
   });
