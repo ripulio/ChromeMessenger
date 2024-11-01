@@ -1,5 +1,3 @@
-/// <reference path="./chrome-global.d.ts" />
-
 export { createContentScriptApiWrapper } from './ContentScriptApiWrapper';
 export { createContentScriptApiServer} from './ContentScriptApiServer';
 export { createBackgroundApiServer } from './BackgroundApiServer';

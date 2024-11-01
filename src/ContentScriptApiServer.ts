@@ -19,11 +19,11 @@ export function createContentScriptApiServer<T extends object>(
           executeFunctionCall(
             request.functionPath,
             injectCallbackPropogation(
-              request.payload,
+              injectStoredObjectReferences(request.payload, objectStore),
               globalContext,
               request.sandboxTabId
             ),
-            globalContext,
+            request.objectId === undefined ? globalContext : objectStore.get(request.objectId),
             request.correlationId,
             sendResponse
           );
@@ -78,6 +78,16 @@ function executePropertyAccess(
   sendResponse(response);
 }
 
+function injectStoredObjectReferences(payload: any, objectStore: Map<string, any>) {
+  for (const key in payload){
+    if (typeof payload[key] === "object" && payload[key] !== null && payload[key].type === "objectReference") {
+      payload[key] = objectStore.get(payload[key].objectId);
+    }
+  }
+
+  return payload;
+}
+
 function injectCallbackPropogation(
   payload: any,
   globalContext: typeof globalThis,
@@ -130,6 +140,7 @@ function executeFunctionCall(
   correlationId: string,
   sendResponse: (response: any) => void
 ): boolean {
+  console.log("Recieved function call", messagePath, payload, target);
   let currentTarget = target;
   for (let i = 0; i < messagePath.length - 1; i++) {
     if (currentTarget[messagePath[i]] === undefined) {
@@ -188,8 +199,15 @@ function createResponse(
   result: any,
   correlationId: string
 ): ObjectReferenceResponse {
+  const serializeObject = (data: any) => {
+    const obj: any = {};
+    for (let key in data) {
+      obj[key] = data[key];
+    }
+    return obj;
+  }
   let resultMessage: ObjectReferenceResponse = {
-    data: result,
+    data: serializeObject(result),
     messageType: "objectReferenceResponse",
     correlationId: correlationId,
   };

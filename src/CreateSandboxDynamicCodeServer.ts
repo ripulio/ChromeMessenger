@@ -60,7 +60,8 @@ export function createSandboxDynamicCodeServer(
     if (event.data?.messageType === "objectReferenceResponse") {
       const correlationId = event.data.correlationId;
       if (pendingPromises.has(correlationId)) {
-        const proxy = createProxyObjectForSandboxContext(callbackRegistry, referenceState, event.data);
+        const objectId = event.data.objectId;
+        const proxy = createProxyObjectForSandboxContext(callbackRegistry, referenceState, event.data.data, objectId);
         pendingPromises.get(correlationId)?.(proxy);
         pendingPromises.delete(correlationId);
       }

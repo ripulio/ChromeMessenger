@@ -13,24 +13,48 @@ export function createObjectWrapperWithCallbackRegistry<T>(
   invocationHandler: (
     functionPath: string[],
     node: keyof T,
+    objectId: string | undefined,
     ...args: any[]
-  ) => Promise<T[keyof T]>,
-  propertyAccessHandler: (
-    functionPath: string[],
-    node: keyof T
   ) => Promise<T[keyof T]>,
   path: string[],
   callbackRegistry: Map<string, Function>,
   referenceState: T,
-  initialObject?: Partial<T> | undefined
+  initialObject?: Partial<T> | undefined,
+  objectId?: string
 ): T {
   const handler = {
     get(target: any, prop: string) {
+      if (typeof prop === "symbol" && prop === IS_PROXY) {
+        return objectId;
+      }
+      const newPath = [...path, prop];
       if (initialObject && prop in initialObject) {
         return initialObject[prop as keyof Partial<T>];
+        /*
+        return new Proxy(initialObject[prop as keyof Partial<T>] as object, {
+          set(target: any, prop: string, newValue: any, reciever: any) {
+            invocationHandler(
+              newPath,
+              prop as keyof T,
+              objectId,
+              newValue
+            ).then(() => true);
+            return true;
+          },
+          get(target: any, prop: string) {
+            const newPath = [...path, prop];
+            return createObjectWrapperWithCallbackRegistry(
+              invocationHandler,
+              newPath,
+              callbackRegistry,
+              referenceState,
+              undefined,
+              objectId
+            );
+          },
+        });
+        */
       }
-
-      const newPath = [...path, prop];
 
       if (prop === "then") {
         console.error("then called directly on object in get trap", newPath);
@@ -38,18 +62,37 @@ export function createObjectWrapperWithCallbackRegistry<T>(
       }
 
       return (...args: any[]) => {
-        const wrappedArgs = args.map((arg: any) =>
-          typeof arg === "function" ? wrapCallback(arg, callbackRegistry) : arg
+        const wrappedArgs = args.map((arg: any) => {
+          switch (typeof arg) {
+            case "function":
+              return wrapCallback(arg, callbackRegistry);
+            case "object":
+              const objectId = isProxy(arg);
+              if (objectId) {
+                return { type: "objectReference", objectId };
+              }
+            default:
+              return arg;
+          }
+        });
+        return invocationHandler(
+          path,
+          prop as keyof T,
+          objectId,
+          ...wrappedArgs
         );
-        return invocationHandler(path, prop as keyof T, ...wrappedArgs);
       };
     },
   };
 
-  return new Proxy({} as T, handler) as unknown as T;
+  return new Proxy({[IS_PROXY] : true} as T, handler) as unknown as T;
 }
 
+const IS_PROXY = Symbol('isProxy');
 
+function isProxy(obj: any): string | undefined {
+  return obj[IS_PROXY];
+}
 
 export function createFunctionWrapperWithCallbackRegistry<T>(
   invocationHandler: (
@@ -66,7 +109,7 @@ export function createFunctionWrapperWithCallbackRegistry<T>(
       const wrappedArgs = args.map((arg: any) =>
         typeof arg === "function" ? wrapCallback(arg, callbackRegistry) : arg
       );
-      return invocationHandler(functionPath, node, ...wrappedArgs);
+      return invocationHandler(functionPath, node, undefined, ...wrappedArgs);
     },
   };
   return new Proxy(function () {}, handler) as Function;
@@ -112,24 +155,14 @@ type PromisifyFunction<T> = T extends (...args: infer A) => infer R
     : (...args: A) => Promise<R>
   : never;
 
-type PromisifyProperty<T> = T extends Function 
+type PromisifyProperty<T> = T extends Function
   ? PromisifyFunction<T>
   : T extends object
-    ? PromiseWrapNamespace<T>
-    : Promise<T>;
+  ? PromiseWrapNamespace<T>
+  : Promise<T>;
 
 type PromiseWrapNamespace<T> = {
-  [K in keyof T as `ripul_${string & K}`]: PromisifyProperty<T[K]>
+  [K in keyof T as `ripul_${string & K}`]: PromisifyProperty<T[K]>;
 };
-
-type ChromePromise<T> = PromiseWrapNamespace<T>;
-
-type DeepChromePromise<T> = {
-  [K in keyof T]: ChromePromise<T[K]>;
-};
-
-export interface ChromeAsync extends DeepChromePromise<typeof chrome>{};
-export interface WindowAsync extends DeepChromePromise<typeof window>{};
-
 
 export {};

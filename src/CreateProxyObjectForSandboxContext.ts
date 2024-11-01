@@ -19,15 +19,16 @@ export function createProxyObjectFactoryForSandboxContext<T>(
 export function createProxyObjectForSandboxContext<T>(
   callbackRegistry: Map<string, Function>,
   referenceState: T,
-  object: Partial<T>
+  object: Partial<T>,
+  objectId: string
 ): T {
   return createObjectWrapperWithCallbackRegistry(
     functionInvocationHandler,
-    propertyAccessHandler,
     [],
     callbackRegistry,
     referenceState,
-    object
+    object,
+    objectId
   );
 }
 
@@ -56,7 +57,6 @@ function createObjectWrapperFactory<T>(
           case "object":
             return createObjectWrapperWithCallbackRegistry(
               invocationHandler,
-              propertyAccessHandler,
               [prop],
               callbackRegistry,
               obj
@@ -72,6 +72,11 @@ function createObjectWrapperFactory<T>(
         return undefined;
       }
     },
+    set(target: any, prop: string, value: any, receiver: any) {
+      console.log("set", prop, value);
+      debugger;
+      return true;
+    }
   };
 
   return new Proxy(function () {}, handler) as T;
@@ -104,6 +109,7 @@ function propertyAccessHandler<T>(
 function functionInvocationHandler<T>(
   functionPath: string[],
   node: keyof T,
+  objectId: string | undefined,
   ...args: any[]
 ): Promise<T[keyof T]> {
   if (node === "then") {
@@ -115,6 +121,7 @@ function functionInvocationHandler<T>(
     correlationId: correlationId,
     messageType: "ProxyInvocation",
     functionPath: [...functionPath, node],
+    objectId: objectId,
     payload: args,
     source: "sandbox",
     destination: "content",
@@ -134,8 +141,4 @@ function functionInvocationHandler<T>(
 
 export function generateUniqueId(): string {
   return Math.random().toString(36).substr(2, 9);
-}
-
-function getValueFromPath(obj: any, path: string[]): any {
-  return path.reduce((acc, key) => acc && acc[key], obj);
 }
