@@ -1,3 +1,5 @@
+import { waitForResponse } from "./CreateSandboxDynamicCodeServer";
+
 type Primitive = string | number | boolean | null | undefined;
 export type Function = (...args: any[]) => unknown;
 
@@ -10,16 +12,8 @@ export type ApiWrapper<T> = {
 };
 
 export function createObjectWrapperWithCallbackRegistry<T>(
-  invocationHandler: (
-    functionPath: string[],
-    node: keyof T,
-    objectId: string | undefined,
-    ...args: any[]
-  ) => Promise<T[keyof T]>,
   path: string[],
   callbackRegistry: Map<string, Function>,
-  referenceState: T,
-  initialObject?: Partial<T> | undefined,
   objectId?: string
 ): T {
   const handler = {
@@ -28,33 +22,6 @@ export function createObjectWrapperWithCallbackRegistry<T>(
         return objectId;
       }
       const newPath = [...path, prop];
-      if (initialObject && prop in initialObject) {
-        return initialObject[prop as keyof Partial<T>];
-        /*
-        return new Proxy(initialObject[prop as keyof Partial<T>] as object, {
-          set(target: any, prop: string, newValue: any, reciever: any) {
-            invocationHandler(
-              newPath,
-              prop as keyof T,
-              objectId,
-              newValue
-            ).then(() => true);
-            return true;
-          },
-          get(target: any, prop: string) {
-            const newPath = [...path, prop];
-            return createObjectWrapperWithCallbackRegistry(
-              invocationHandler,
-              newPath,
-              callbackRegistry,
-              referenceState,
-              undefined,
-              objectId
-            );
-          },
-        });
-        */
-      }
 
       if (prop === "then") {
         console.error("then called directly on object in get trap", newPath);
@@ -71,11 +38,20 @@ export function createObjectWrapperWithCallbackRegistry<T>(
               if (objectId) {
                 return { type: "objectReference", objectId };
               }
+              if (arg.type === "assignment") {
+                const objectId = isProxy(arg.value);
+                if (objectId) {
+                  return {
+                    ...arg,
+                    value: { type: "objectReference", objectId },
+                  };
+                }
+              }
             default:
               return arg;
           }
         });
-        return invocationHandler(
+        return functionInvocationHandler(
           path,
           prop as keyof T,
           objectId,
@@ -85,21 +61,52 @@ export function createObjectWrapperWithCallbackRegistry<T>(
     },
   };
 
-  return new Proxy({[IS_PROXY] : true} as T, handler) as unknown as T;
+  return new Proxy({ [IS_PROXY]: true } as T, handler) as unknown as T;
 }
 
-const IS_PROXY = Symbol('isProxy');
+const IS_PROXY = Symbol("isProxy");
 
 function isProxy(obj: any): string | undefined {
   return obj[IS_PROXY];
 }
 
+function functionInvocationHandler<T>(
+  functionPath: string[],
+  node: keyof T,
+  objectId: string | undefined,
+  ...args: any[]
+): Promise<T[keyof T]> {
+  if (node === "then") {
+    console.error(
+      "then called directly on object in function invocation trap",
+      [...functionPath, node]
+    );
+  }
+  const correlationId = generateUniqueId();
+
+  const message = {
+    correlationId: correlationId,
+    messageType: "ProxyInvocation",
+    functionPath: [...functionPath, node],
+    objectId: objectId,
+    payload: args,
+    source: "sandbox",
+    destination: "content",
+  };
+
+  for (const key in message.payload) {
+    if (typeof message.payload[key] === "function") {
+      message.payload[key] = message.payload[key].toString();
+    }
+  }
+
+  console.log(`Sending message: ${JSON.stringify(message)}`);
+  window.parent.postMessage(message, "*");
+
+  return waitForResponse(correlationId);
+}
+
 export function createFunctionWrapperWithCallbackRegistry<T>(
-  invocationHandler: (
-    functionPath: string[],
-    node: keyof T,
-    ...args: any[]
-  ) => Promise<any>,
   functionPath: string[],
   node: keyof T,
   callbackRegistry: Map<string, Function>
@@ -109,7 +116,12 @@ export function createFunctionWrapperWithCallbackRegistry<T>(
       const wrappedArgs = args.map((arg: any) =>
         typeof arg === "function" ? wrapCallback(arg, callbackRegistry) : arg
       );
-      return invocationHandler(functionPath, node, undefined, ...wrappedArgs);
+      return functionInvocationHandler(
+        functionPath,
+        node,
+        undefined,
+        ...wrappedArgs
+      );
     },
   };
   return new Proxy(function () {}, handler) as Function;

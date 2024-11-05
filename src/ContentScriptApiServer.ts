@@ -16,6 +16,15 @@ export function createContentScriptApiServer<T extends object>(
           break;
 
         case "ProxyInvocation":
+          const target = request.objectId === undefined ? globalContext : objectStore.get(request.objectId);
+
+          if (isAssignment(request.payload)) {
+            const arg = request.payload[0].value;
+            const transformedArg = transformObjectReferenceArg(arg, objectStore);
+            executeAssignment(transformedArg, target, request.functionPath);
+            return false;
+          }
+
           executeFunctionCall(
             request.functionPath,
             injectCallbackPropogation(
@@ -23,7 +32,7 @@ export function createContentScriptApiServer<T extends object>(
               globalContext,
               request.sandboxTabId
             ),
-            request.objectId === undefined ? globalContext : objectStore.get(request.objectId),
+            target,
             request.correlationId,
             sendResponse
           );
@@ -80,12 +89,19 @@ function executePropertyAccess(
 
 function injectStoredObjectReferences(payload: any, objectStore: Map<string, any>) {
   for (const key in payload){
-    if (typeof payload[key] === "object" && payload[key] !== null && payload[key].type === "objectReference") {
-      payload[key] = objectStore.get(payload[key].objectId);
-    }
+    const arg = payload[key];
+    const transformedArg = transformObjectReferenceArg(arg, objectStore);
+    payload[key] = transformedArg;
   }
 
   return payload;
+}
+
+function transformObjectReferenceArg(arg: any, objectStore: Map<string, any>) {
+  if (typeof arg === "object" && arg !== null && arg.type === "objectReference") {
+    return objectStore.get(arg.objectId);
+  }
+  return arg;
 }
 
 function injectCallbackPropogation(
@@ -133,6 +149,20 @@ function stringifyEvent(e: any) {
   );
 }
 
+function isAssignment(payload: any): boolean {
+  return payload.length > 0 && payload[0].type === "assignment";
+}
+
+function executeAssignment(arg: any, target: any, path: string[]) {
+  let current = target;
+  
+  for (let i = 0; i < path.length - 1; i++) {
+    current = current[path[i]];
+  }
+
+  current[path[path.length - 1]] = arg;
+}
+
 function executeFunctionCall(
   messagePath: string[],
   payload: any,
@@ -141,6 +171,7 @@ function executeFunctionCall(
   sendResponse: (response: any) => void
 ): boolean {
   console.log("Recieved function call", messagePath, payload, target);
+
   let currentTarget = target;
   for (let i = 0; i < messagePath.length - 1; i++) {
     if (currentTarget[messagePath[i]] === undefined) {
