@@ -4,6 +4,7 @@ export function createContentScriptApiServer<T extends object>(
 ): void {
   chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (request.source === "sandbox") {
+      console.log("Recieved sandbox message", request);
       switch (request.messageType) {
         case "ProxyPropertyAccess":
           executePropertyAccess(
@@ -22,6 +23,8 @@ export function createContentScriptApiServer<T extends object>(
             const arg = request.payload[0].value;
             const transformedArg = transformObjectReferenceArg(arg, objectStore);
             executeAssignment(transformedArg, target, request.functionPath);
+            const response = createResponse(true, request.correlationId);
+            sendResponse(response);
             return false;
           }
 
@@ -237,8 +240,11 @@ function createResponse(
     }
     return obj;
   }
+
+  const shouldSerialize = shouldSerializeResult(result);
+
   let resultMessage: ObjectReferenceResponse = {
-    data: serializeObject(result),
+    data: shouldSerialize ? serializeObject(result) : result,
     messageType: "objectReferenceResponse",
     correlationId: correlationId,
   };
@@ -251,6 +257,10 @@ function createResponse(
   }
 
   return resultMessage;
+}
+
+function shouldSerializeResult(result: any): boolean {
+  return result !== undefined && result !== null && (hasPrototype(result) || hasMethods(result));
 }
 
 function hasPrototype(obj: any): boolean {
