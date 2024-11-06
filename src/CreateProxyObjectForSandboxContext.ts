@@ -4,16 +4,6 @@ import {
 } from "./TypeUtilities";
 import { Function } from "./TypeUtilities";
 
-export function createProxyObjectFactoryForSandboxContext<T>(
-  callbackRegistry: Map<string, Function>,
-  referenceState: T
-): T {
-  return createObjectWrapperFactory<T>(
-    callbackRegistry,
-    referenceState
-  ) as T;
-}
-
 export function createProxyObjectForSandboxContext<T>(
   callbackRegistry: Map<string, Function>,
   objectId: string
@@ -25,7 +15,7 @@ export function createProxyObjectForSandboxContext<T>(
   );
 }
 
-function createObjectWrapperFactory<T>(
+export function createObjectWrapperFactory<T>(
   callbackRegistry: Map<string, Function>,
   referenceState: T
 ): T {

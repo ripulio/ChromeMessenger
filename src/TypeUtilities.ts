@@ -29,28 +29,7 @@ export function createObjectWrapperWithCallbackRegistry<T>(
       }
 
       return (...args: any[]) => {
-        const wrappedArgs = args.map((arg: any) => {
-          switch (typeof arg) {
-            case "function":
-              return wrapCallback(arg, callbackRegistry);
-            case "object":
-              const objectId = isProxy(arg);
-              if (objectId) {
-                return { type: "objectReference", objectId };
-              }
-              if (arg.type === "assignment") {
-                const objectId = isProxy(arg.value);
-                if (objectId) {
-                  return {
-                    ...arg,
-                    value: { type: "objectReference", objectId },
-                  };
-                }
-              }
-            default:
-              return arg;
-          }
-        });
+        const wrappedArgs = args.map(arg => transformArg(arg, callbackRegistry));
         return functionInvocationHandler(
           path,
           prop as keyof T,
@@ -95,13 +74,20 @@ function functionInvocationHandler<T>(
   };
 
   for (const key in message.payload) {
+    // Convert functions to strings to avoid serialization issues
     if (typeof message.payload[key] === "function") {
+      console.error("Transforming argument", key, message.payload[key]);
       message.payload[key] = message.payload[key].toString();
+      continue;
     }
   }
 
   console.log(`Sending message: ${JSON.stringify(message)}`);
-  window.parent.postMessage(message, "*");
+  try{
+    window.parent.postMessage(message, "*");
+  } catch (e) {
+    console.error("Error sending message", e);
+  }
 
   return waitForResponse(correlationId);
 }
@@ -176,5 +162,57 @@ type PromisifyProperty<T> = T extends Function
 type PromiseWrapNamespace<T> = {
   [K in keyof T as `ripul_${string & K}`]: PromisifyProperty<T[K]>;
 };
+
+function transformArg(arg: any, callbackRegistry: Map<string, Function>): any {
+  switch (typeof arg) {
+    case "function":
+      return wrapCallback(arg, callbackRegistry);
+    case "object":
+      if (!arg) return arg;
+      const objectId = isProxy(arg);
+      if (objectId) {
+        return { type: "objectReference", objectId };
+      }
+      if (arg.type === "assignment") {
+        const objectId = isProxy(arg.value);
+        if (objectId) {
+          return {
+            ...arg,
+            value: { type: "objectReference", objectId },
+          };
+        }
+      }
+      if (Array.isArray(arg)) {
+        return arg.map(item => transformArg(item, callbackRegistry));
+      }
+
+      if (arg instanceof Event){
+        (arg as any).eventType = arg.constructor.name;
+      }
+
+      const serializeObject = (data: any) => {
+        const obj: any = {};
+        for (let key in data) {
+          if (typeof data[key] === 'function'){
+            continue;
+          }
+          obj[key] = data[key];
+        }
+        return obj;
+      };
+
+      const resultArg = Object.fromEntries(
+        Object.entries(serializeObject(arg)).map(([key, value]) => [
+          key,
+          typeof value === 'object' ? 
+            transformArg(value, callbackRegistry) : 
+            value
+        ])
+      );
+      return resultArg;
+    default:
+      return arg;
+  }
+}
 
 export {};

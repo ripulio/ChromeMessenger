@@ -17,11 +17,17 @@ export function createContentScriptApiServer<T extends object>(
           break;
 
         case "ProxyInvocation":
-          const target = request.objectId === undefined ? globalContext : objectStore.get(request.objectId);
+          const target =
+            request.objectId === undefined
+              ? globalContext
+              : objectStore.get(request.objectId);
 
           if (isAssignment(request.payload)) {
             const arg = request.payload[0].value;
-            const transformedArg = transformObjectReferenceArg(arg, objectStore);
+            const transformedArg = transformObjectReferenceArg(
+              arg,
+              objectStore
+            );
             executeAssignment(transformedArg, target, request.functionPath);
             const response = createResponse(true, request.correlationId);
             sendResponse(response);
@@ -90,18 +96,30 @@ function executePropertyAccess(
   sendResponse(response);
 }
 
-function injectStoredObjectReferences(payload: any, objectStore: Map<string, any>) {
-  for (const key in payload){
+function injectStoredObjectReferences(
+  payload: any,
+  objectStore: Map<string, any>
+) {
+  for (const key in payload) {
     const arg = payload[key];
-    const transformedArg = transformObjectReferenceArg(arg, objectStore);
-    payload[key] = transformedArg;
+    if (
+      typeof arg === "object" &&
+      arg !== null &&
+      arg.type === "objectReference"
+    ) {
+      payload[key] = objectStore.get(arg.objectId);
+    }
   }
 
   return payload;
 }
 
 function transformObjectReferenceArg(arg: any, objectStore: Map<string, any>) {
-  if (typeof arg === "object" && arg !== null && arg.type === "objectReference") {
+  if (
+    typeof arg === "object" &&
+    arg !== null &&
+    arg.type === "objectReference"
+  ) {
     return objectStore.get(arg.objectId);
   }
   return arg;
@@ -158,12 +176,79 @@ function isAssignment(payload: any): boolean {
 
 function executeAssignment(arg: any, target: any, path: string[]) {
   let current = target;
-  
+
   for (let i = 0; i < path.length - 1; i++) {
     current = current[path[i]];
   }
 
   current[path[path.length - 1]] = arg;
+}
+
+function transformEventsInPayload(payload: any[]): any[] {
+  return payload.map((arg) => {
+    return argumentToEvent(arg) ?? arg;
+  });
+}
+
+function argumentIsEvent(argument: any): boolean {
+  if (!argument || typeof argument !== "object") {
+    return false;
+  }
+
+  if (argument.eventType) {
+    return true;
+  }
+
+  return false;
+}
+
+function getEventConstructorByName(name: string): EventConstructor | null {
+  try {
+    const constructor = (window as any)[name];
+    return isEventConstructor(constructor) ? constructor : null;
+  } catch {
+    return null;
+  }
+}
+
+function argumentToEvent(argument: any): Event | null {
+  if (!argumentIsEvent(argument)) {
+    return null;
+  }
+
+  try {
+    const { eventType, type, ...eventInit } = argument;
+    const constructor = getEventConstructorByName(eventType);
+    if (!constructor) {
+      console.warn(`Failed to get event constructor for ${argument.eventType}`);
+      return null;
+    }
+    const hydratedEventInit = injectStoredObjectReferences(
+      eventInit,
+      objectStore
+    );
+    return createTypedEvent(constructor, hydratedEventInit, type);
+  } catch (error) {
+    console.warn(`Failed to create event:`, error);
+    return null;
+  }
+}
+
+type EventConstructor = {
+  new (type: string, eventInitDict?: any): Event;
+  prototype: Event;
+};
+
+function isEventConstructor(value: any): value is EventConstructor {
+  return typeof value === "function" && value.prototype instanceof Event;
+}
+
+function createTypedEvent(
+  constructor: EventConstructor,
+  initArgs: any,
+  eventType: string
+): Event {
+  return new constructor(eventType, initArgs);
 }
 
 function executeFunctionCall(
@@ -200,8 +285,11 @@ function executeFunctionCall(
     return false; // Indicate that we've already sent the response
   }
 
-  console.log("Executing function", functionToCall, payload);
-  const result = functionToCall.apply(currentTarget, payload);
+  console.log("Transforming events in payload", payload);
+  const eventedPayload = transformEventsInPayload(payload);
+
+  console.log("Executing function", functionToCall, eventedPayload);
+  const result = functionToCall.apply(currentTarget, eventedPayload);
   if (result instanceof Promise) {
     result
       .then((resolvedResult) => {
@@ -239,7 +327,7 @@ function createResponse(
       obj[key] = data[key];
     }
     return obj;
-  }
+  };
 
   const shouldSerialize = shouldSerializeResult(result);
 
@@ -260,7 +348,11 @@ function createResponse(
 }
 
 function shouldSerializeResult(result: any): boolean {
-  return result !== undefined && result !== null && (hasPrototype(result) || hasMethods(result));
+  return (
+    result !== undefined &&
+    result !== null &&
+    (hasPrototype(result) || hasMethods(result))
+  );
 }
 
 function hasPrototype(obj: any): boolean {

@@ -1,4 +1,4 @@
-import { createProxyObjectFactoryForSandboxContext, createProxyObjectForSandboxContext } from "./CreateProxyObjectForSandboxContext";
+import { createObjectWrapperFactory, createProxyObjectForSandboxContext } from "./CreateProxyObjectForSandboxContext";
 import { Function } from "./TypeUtilities";
 
 const pendingPromises = new Map<string, (arg: any) => void>();
@@ -10,16 +10,6 @@ export function waitForResponse<T>(correlationId: string): Promise<T[keyof T]> {
   });
   return promise;
 }
-
-/*
-export function waitForResponse(correlationId: string): Promise<any> {
-  const promise = new Promise((resolve, reject) => {
-    pendingPromises.set(correlationId, resolve);
-    // todo handle timeout
-  });
-  return promise;
-}
-*/
 
 export function createSandboxDynamicCodeServer(
   handler: (
@@ -69,7 +59,7 @@ export function createSandboxDynamicCodeServer(
     }
 
     // unknown function call, allow handling by consumer
-    const proxies = createProxyObjectFactoryForSandboxContext<
+    const proxies = createObjectWrapperFactory<
       Window & typeof globalThis
     >(callbackRegistry, referenceState);
 
