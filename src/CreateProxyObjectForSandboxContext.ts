@@ -12,6 +12,7 @@ export function createProxyObjectForSandboxContext<T>(
   return createObjectWrapperWithCallbackRegistry(
     [],
     callbackRegistry,
+    [],
     objectId,
     data
   );
@@ -36,12 +37,14 @@ export function createObjectWrapperFactory<T>(
           case "object":
             return createObjectWrapperWithCallbackRegistry(
               [prop],
-              callbackRegistry
+              callbackRegistry,
+              []
             );
           default:
             return createObjectWrapperWithCallbackRegistry(
               [prop],
-              callbackRegistry
+              callbackRegistry,
+              []
             );
         }
       } catch (e) {

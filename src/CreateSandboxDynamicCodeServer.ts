@@ -1,10 +1,10 @@
 import { createObjectWrapperFactory, createProxyObjectForSandboxContext } from "./CreateProxyObjectForSandboxContext";
 import { Function } from "./TypeUtilities";
 
-const pendingPromises = new Map<string, (arg: any) => void>();
+const pendingPromises = new Map<string, (arg: any, raw: MessageEvent<any>) => void>();
 
-export function waitForResponse<T>(correlationId: string): Promise<T[keyof T]> {
-  const promise = new Promise<T[keyof T]>((resolve, reject) => {
+export function waitForResponse<T>(correlationId: string): Promise<{proxy: T[keyof T], raw: MessageEvent<any>}> {
+  const promise = new Promise<{proxy: T[keyof T], raw: MessageEvent<any>}>((resolve, reject) => {
     pendingPromises.set(correlationId, resolve);
     // todo handle timeout
   });
@@ -53,7 +53,7 @@ export function createSandboxDynamicCodeServer(
         const objectId = event.data.objectId;
         console.error("Creating proxy for object", objectId, event.data.data);
         const proxy = createProxyObjectForSandboxContext(callbackRegistry, objectId, event.data.data);
-        pendingPromises.get(correlationId)?.(proxy);
+        pendingPromises.get(correlationId)?.(proxy, event.data);
         pendingPromises.delete(correlationId);
       }
       return;

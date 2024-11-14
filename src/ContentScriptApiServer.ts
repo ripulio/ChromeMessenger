@@ -442,10 +442,12 @@ function createResponse(
     correlationId: correlationId,
   };
 
+  /*
   const isIterable = result[Symbol.iterator] !== undefined;
   if (isIterable) {
     return addIterablesToResponse(result, resultMessage);
   }
+  */
 
   if (shouldStoreObjectReference(result)) {
     resultMessage.objectId = storeObjectReference(result);

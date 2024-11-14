@@ -1,3 +1,4 @@
+import { createProxyObjectForSandboxContext } from "./CreateProxyObjectForSandboxContext";
 import { waitForResponse } from "./CreateSandboxDynamicCodeServer";
 
 type Primitive = string | number | boolean | null | undefined;
@@ -29,19 +30,17 @@ function handleAsyncIteration(path: string[], callbackRegistry: Map<string, Func
 
       window.parent.postMessage(message, "*");
 
-      const response = await waitForResponse<any>(correlationId);
+      const {raw} = await waitForResponse<any>(correlationId);
 
-      iteratorId = response.iteratorId;
+      iteratorId = raw.data.iteratorId;
 
       return {
-        value: createObjectWrapperWithCallbackRegistry(
-          path,
+        value: createProxyObjectForSandboxContext(
           callbackRegistry,
-          response.objectId,
-          response.iterableItemIds,
-          response.value
+          raw.data.objectId,
+          raw.data
         ),
-        done: response.done,
+        done: raw.data.done,
       };
     };
     let done = false;
@@ -67,7 +66,7 @@ export function createObjectWrapperWithCallbackRegistry<T>(
 ): T {
   const handler = {
     get(target: any, prop: string) {
-      if (typeof prop === "symbol" && prop === IS_PROXY) {
+      if (typeof prop === "symbol") {
         if (prop === IS_PROXY) {
           return objectId;
         }
@@ -77,7 +76,9 @@ export function createObjectWrapperWithCallbackRegistry<T>(
         }
 
         if (prop === Symbol.iterator) {
-          return iterables.map((id) => createObjectWrapperWithCallbackRegistry(path, callbackRegistry,[], id));
+          console.error("iterator called directly on object in get trap", path);
+          return undefined;
+          //return iterables.map((id) => createObjectWrapperWithCallbackRegistry(path, callbackRegistry,[], id));
         }
       }
 
@@ -94,16 +95,19 @@ export function createObjectWrapperWithCallbackRegistry<T>(
       }
 
       return (...args: any[]) => {
-        const wrappedArgs = args.map((arg) =>
-          transformArg(arg, callbackRegistry)
-        );
+
         if (typeof prop === "symbol" && prop === Symbol.asyncIterator) {
           return handleAsyncIteration(path, callbackRegistry, objectId, data);
         }
 
         if (typeof prop === "symbol" && prop === Symbol.iterator) {
-          return this;
+          console.error("iterator called directly on object in get trap", newPath);
+          return undefined;
         }
+
+        const wrappedArgs = args.map((arg) =>
+          transformArg(arg, callbackRegistry)
+        );
 
         return functionInvocationHandler(
           path,
@@ -170,7 +174,7 @@ function functionInvocationHandler<T>(
     console.error("Error sending message", e);
   }
 
-  return waitForResponse(correlationId);
+  return waitForResponse<T>(correlationId).then(({proxy, raw}) => proxy);
 }
 
 export function createFunctionWrapperWithCallbackRegistry<T>(
