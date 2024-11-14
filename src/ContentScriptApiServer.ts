@@ -21,7 +21,45 @@ export function createContentScriptApiServer<T extends object>(
             request.objectId === undefined
               ? globalContext
               : objectStore.get(request.objectId);
+          if (isIteratorStart(request)) {
+            const object = objectStore.get(request.objectId);
+            const iterator = object[Symbol.iterator]();
+            const iteratorId = storeObjectReference(iterator);
+            const firstResult = iterator.next();
+            const done = firstResult.done;
+            const response = createIteratorResponse(
+              firstResult.value,
+              request.correlationId,
+              iteratorId,
+              done
+            );
+            sendResponse(response);
+            return false;
+          }
+          if (isIteratorNext(request)) {
+            const iterator = objectStore.get(request.iteratorId);
+            const result = iterator.next();
+            const done = result.done;
 
+            const response = createIteratorResponse(
+              result.value,
+              request.correlationId,
+              request.iteratorId,
+              done
+            );
+            sendResponse(response);
+            return false;
+          }
+          if (isComparison(request.functionPath)) {
+            const result = executeComparison(
+              request.payload[0],
+              target,
+              transformObjectReferenceArg(request.payload[1], objectStore)
+            );
+            const response = createResponse(result, request.correlationId);
+            sendResponse(response);
+            return false;
+          }
           if (isAssignment(request.payload)) {
             const arg = request.payload[0].value;
             const transformedArg = transformObjectReferenceArg(
@@ -70,6 +108,37 @@ export function createContentScriptApiServer<T extends object>(
 
 const objectStore = new Map<string, any>();
 let nextObjectId = 1;
+
+function executeComparison(
+  comparisonIdentifier: string,
+  left: any,
+  right: any
+) {
+  console.log("Executing comparison", comparisonIdentifier, left, right);
+
+  // Map TypeScript SyntaxKind values to comparison operations
+  switch (comparisonIdentifier) {
+    case "32": // EqualsEqualsToken
+      return left == right;
+    case "33": // EqualsEqualsEqualsToken
+      return left === right;
+    case "34": // ExclamationEqualsToken
+      return left != right;
+    case "35": // ExclamationEqualsEqualsToken
+      return left !== right;
+    case "36": // LessThanToken
+      return left < right;
+    case "37": // LessThanEqualsToken
+      return left <= right;
+    case "38": // GreaterThanToken
+      return left > right;
+    case "39": // GreaterThanEqualsToken
+      return left >= right;
+    default:
+      console.warn(`Unknown comparison operator: ${comparisonIdentifier}`);
+      return false;
+  }
+}
 
 function executePropertyAccess(
   path: string[],
@@ -174,6 +243,26 @@ function isAssignment(payload: any): boolean {
   return payload.length > 0 && payload[0].type === "assignment";
 }
 
+function isIteratorStart(request: any): boolean {
+  return (
+    request?.functionPath?.length > 0 &&
+    request.functionPath[0] === "iterator_next" &&
+    request.iteratorId === undefined
+  );
+}
+
+function isIteratorNext(request: any): boolean {
+  return (
+    request?.functionPath?.length > 0 &&
+    request.functionPath[0] === "iterator_next" &&
+    request.iteratorId !== undefined
+  );
+}
+
+function isComparison(path: string[]): boolean {
+  return path.length > 0 && path[0] === "__compare";
+}
+
 function executeAssignment(arg: any, target: any, path: string[]) {
   let current = target;
 
@@ -260,6 +349,11 @@ function executeFunctionCall(
 ): boolean {
   console.log("Recieved function call", messagePath, payload, target);
 
+  if (target === nullTarget) {
+    sendResponse(createResponse(null, correlationId));
+    return false;
+  }
+
   let currentTarget = target;
   for (let i = 0; i < messagePath.length - 1; i++) {
     if (currentTarget[messagePath[i]] === undefined) {
@@ -314,13 +408,24 @@ export type ObjectReferenceResponse = {
   data: any;
   messageType: "objectReferenceResponse";
   objectId?: string | undefined;
+  iteratorId?: string | undefined;
   correlationId: string;
+};
+
+export type IteratorResponse = ObjectReferenceResponse & {
+  iteratorId: string;
+  done: boolean;
+};
+
+export type IterableResponse = ObjectReferenceResponse & {
+  iterableItemIds: string[];
 };
 
 function createResponse(
   result: any,
   correlationId: string
 ): ObjectReferenceResponse {
+
   const serializeObject = (data: any) => {
     const obj: any = {};
     for (let key in data) {
@@ -337,11 +442,64 @@ function createResponse(
     correlationId: correlationId,
   };
 
+  const isIterable = result[Symbol.iterator] !== undefined;
+  if (isIterable) {
+    return addIterablesToResponse(result, resultMessage);
+  }
+
   if (shouldStoreObjectReference(result)) {
-    // Generate a unique ID and store the result
-    const objectId = `obj_${nextObjectId++}`;
-    objectStore.set(objectId, result);
-    resultMessage.objectId = objectId;
+    resultMessage.objectId = storeObjectReference(result);
+  }
+
+  return resultMessage;
+}
+
+function addIterablesToResponse(
+  result: any,
+  message: ObjectReferenceResponse
+): ObjectReferenceResponse {
+  const iteratedValues = [...result];
+  const storedItems = [];
+  for (let i = 0; i < iteratedValues.length; i++) {
+    const value = iteratedValues[i];
+    const storedItemId = storeObjectReference(value);
+    storedItems.push(storedItemId);
+  }
+
+  let resultMessage: IterableResponse = {
+    ...message,
+    iterableItemIds: storedItems,
+  };
+
+  return resultMessage;
+}
+
+function createIteratorResponse(
+  result: any,
+  correlationId: string,
+  iteratorId: string,
+  done: boolean
+): ObjectReferenceResponse {
+  const serializeObject = (data: any) => {
+    const obj: any = {};
+    for (let key in data) {
+      obj[key] = data[key];
+    }
+    return obj;
+  };
+
+  const shouldSerialize = shouldSerializeResult(result);
+
+  let resultMessage: IteratorResponse = {
+    data: shouldSerialize ? serializeObject(result) : result,
+    messageType: "objectReferenceResponse",
+    correlationId: correlationId,
+    iteratorId: iteratorId,
+    done: done,
+  };
+
+  if (shouldStoreObjectReference(result)) {
+    resultMessage.objectId = storeObjectReference(result);
   }
 
   return resultMessage;
@@ -362,10 +520,21 @@ function hasPrototype(obj: any): boolean {
   );
 }
 
+const nullTarget = { value: null };
+
+function storeObjectReference(obj: any) {
+  if (obj === undefined || obj === null) {
+    objectStore.set("null", nullTarget);
+    return "null";
+  }
+  // Generate a unique ID and store the result
+  const objectId = `obj_${nextObjectId++}`;
+  objectStore.set(objectId, obj);
+  return objectId;
+}
+
 function shouldStoreObjectReference(obj: any): boolean {
-  return (
-    obj !== undefined && obj !== null && (hasPrototype(obj) || hasMethods(obj))
-  );
+  return true;
 }
 
 function hasMethods(obj: any): boolean {

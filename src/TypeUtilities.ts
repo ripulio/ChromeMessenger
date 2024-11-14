@@ -11,16 +11,76 @@ export type ApiWrapper<T> = {
     : ApiWrapper<T[K]>;
 };
 
+function handleAsyncIteration(path: string[], callbackRegistry: Map<string, Function>, objectId: string | undefined, data: any) {
+  return async function* () {
+    let iteratorId: string | undefined = undefined;
+    const getNext = async () => {
+      const correlationId = generateUniqueId();
+      const message = {
+        correlationId: correlationId,
+        messageType: "ProxyInvocation",
+        functionPath: ["iterator_next"],
+        objectId: objectId,
+        payload: [],
+        source: "sandbox",
+        destination: "content",
+        iteratorId: iteratorId
+      };
+
+      window.parent.postMessage(message, "*");
+
+      const response = await waitForResponse<any>(correlationId);
+
+      iteratorId = response.iteratorId;
+
+      return {
+        value: createObjectWrapperWithCallbackRegistry(
+          path,
+          callbackRegistry,
+          response.objectId,
+          response.iterableItemIds,
+          response.value
+        ),
+        done: response.done,
+      };
+    };
+    let done = false;
+    while (!done){
+      const { value, done: nowDone } = await getNext();
+      done = nowDone;
+      yield value;
+    }
+  };
+}
+
+function handleIteration(path: string[], callbackRegistry: Map<string, Function>, objectId: string | undefined, data: any) {
+  return function* () {
+    
+  }
+}
 export function createObjectWrapperWithCallbackRegistry<T>(
   path: string[],
   callbackRegistry: Map<string, Function>,
-  objectId?: string
+  iterables: string[],
+  objectId?: string,
+  data?: any
 ): T {
   const handler = {
     get(target: any, prop: string) {
       if (typeof prop === "symbol" && prop === IS_PROXY) {
-        return objectId;
+        if (prop === IS_PROXY) {
+          return objectId;
+        }
+
+        if (prop === Symbol.asyncIterator) {
+          return handleAsyncIteration(path, callbackRegistry, objectId, data);
+        }
+
+        if (prop === Symbol.iterator) {
+          return iterables.map((id) => createObjectWrapperWithCallbackRegistry(path, callbackRegistry,[], id));
+        }
       }
+
       const newPath = [...path, prop];
 
       if (prop === "then") {
@@ -28,8 +88,23 @@ export function createObjectWrapperWithCallbackRegistry<T>(
         return Promise.resolve();
       }
 
+      if (data && data[prop] && typeof data[prop] !== "object") {
+        console.error("Returning data", newPath, data[prop]);
+        return () => Promise.resolve(data[prop]);
+      }
+
       return (...args: any[]) => {
-        const wrappedArgs = args.map(arg => transformArg(arg, callbackRegistry));
+        const wrappedArgs = args.map((arg) =>
+          transformArg(arg, callbackRegistry)
+        );
+        if (typeof prop === "symbol" && prop === Symbol.asyncIterator) {
+          return handleAsyncIteration(path, callbackRegistry, objectId, data);
+        }
+
+        if (typeof prop === "symbol" && prop === Symbol.iterator) {
+          return this;
+        }
+
         return functionInvocationHandler(
           path,
           prop as keyof T,
@@ -38,6 +113,12 @@ export function createObjectWrapperWithCallbackRegistry<T>(
         );
       };
     },
+    ownKeys(target: any) {
+      return Reflect.ownKeys(data);
+    },
+    getOwnPropertyDescriptor(target: any, prop: string) {
+      return Reflect.getOwnPropertyDescriptor(data, prop);
+    }
   };
 
   return new Proxy({ [IS_PROXY]: true } as T, handler) as unknown as T;
@@ -83,7 +164,7 @@ function functionInvocationHandler<T>(
   }
 
   console.log(`Sending message: ${JSON.stringify(message)}`);
-  try{
+  try {
     window.parent.postMessage(message, "*");
   } catch (e) {
     console.error("Error sending message", e);
@@ -183,17 +264,17 @@ function transformArg(arg: any, callbackRegistry: Map<string, Function>): any {
         }
       }
       if (Array.isArray(arg)) {
-        return arg.map(item => transformArg(item, callbackRegistry));
+        return arg.map((item) => transformArg(item, callbackRegistry));
       }
 
-      if (arg instanceof Event){
+      if (arg instanceof Event) {
         (arg as any).eventType = arg.constructor.name;
       }
 
       const serializeObject = (data: any) => {
         const obj: any = {};
         for (let key in data) {
-          if (typeof data[key] === 'function'){
+          if (typeof data[key] === "function") {
             continue;
           }
           obj[key] = data[key];
@@ -204,9 +285,9 @@ function transformArg(arg: any, callbackRegistry: Map<string, Function>): any {
       const resultArg = Object.fromEntries(
         Object.entries(serializeObject(arg)).map(([key, value]) => [
           key,
-          typeof value === 'object' ? 
-            transformArg(value, callbackRegistry) : 
-            value
+          typeof value === "object"
+            ? transformArg(value, callbackRegistry)
+            : value,
         ])
       );
       return resultArg;

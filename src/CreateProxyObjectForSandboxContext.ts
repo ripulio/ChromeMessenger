@@ -6,12 +6,14 @@ import { Function } from "./TypeUtilities";
 
 export function createProxyObjectForSandboxContext<T>(
   callbackRegistry: Map<string, Function>,
-  objectId: string
+  objectId: string,
+  data: any
 ): T {
   return createObjectWrapperWithCallbackRegistry(
     [],
     callbackRegistry,
-    objectId
+    objectId,
+    data
   );
 }
 
@@ -37,14 +39,20 @@ export function createObjectWrapperFactory<T>(
               callbackRegistry
             );
           default:
-            console.warn("prop type not supported:", propType);
-            return undefined;
+            return createObjectWrapperWithCallbackRegistry(
+              [prop],
+              callbackRegistry
+            );
         }
       } catch (e) {
         console.error("error", e);
         return undefined;
       }
-    }
+    },
+    apply(target: any, thisArg: any, argumentsList: any[]) {
+      console.error("apply", target, thisArg, argumentsList);
+      return target.apply(thisArg, argumentsList);
+    },
   };
 
   return new Proxy(function () {}, handler) as T;
