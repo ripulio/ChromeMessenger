@@ -14,25 +14,23 @@ export type ApiWrapper<T> = {
 
 function handleAsyncIteration(path: string[], callbackRegistry: Map<string, Function>, objectId: string | undefined, data: any) {
   return async function* () {
-    let iteratorId: string | undefined = undefined;
     const getNext = async () => {
       const correlationId = generateUniqueId();
       const message = {
         correlationId: correlationId,
         messageType: "ProxyInvocation",
-        functionPath: ["iterator_next"],
+        functionPath: ["getNext"],
         objectId: objectId,
         payload: [],
         source: "sandbox",
-        destination: "content",
-        iteratorId: iteratorId
+        destination: "content"
       };
 
       window.parent.postMessage(message, "*");
 
       const {raw} = await waitForResponse<any>(correlationId);
 
-      iteratorId = raw.data.iteratorId;
+      objectId = raw.data.iteratorId;
 
       return {
         value: createProxyObjectForSandboxContext(
@@ -52,15 +50,10 @@ function handleAsyncIteration(path: string[], callbackRegistry: Map<string, Func
   };
 }
 
-function handleIteration(path: string[], callbackRegistry: Map<string, Function>, objectId: string | undefined, data: any) {
-  return function* () {
-    
-  }
-}
 export function createObjectWrapperWithCallbackRegistry<T>(
   path: string[],
   callbackRegistry: Map<string, Function>,
-  iterables: string[],
+  iteratorId?: string,
   objectId?: string,
   data?: any
 ): T {
@@ -72,13 +65,11 @@ export function createObjectWrapperWithCallbackRegistry<T>(
         }
 
         if (prop === Symbol.asyncIterator) {
-          return handleAsyncIteration(path, callbackRegistry, objectId, data);
+          return () => createObjectWrapperWithCallbackRegistry(path, callbackRegistry, iteratorId, objectId, data);
         }
 
         if (prop === Symbol.iterator) {
-          console.error("iterator called directly on object in get trap", path);
-          return undefined;
-          //return iterables.map((id) => createObjectWrapperWithCallbackRegistry(path, callbackRegistry,[], id));
+          return () => createObjectWrapperWithCallbackRegistry(path, callbackRegistry, iteratorId, objectId, data);
         }
       }
 

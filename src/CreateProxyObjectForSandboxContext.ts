@@ -7,12 +7,13 @@ import { Function } from "./TypeUtilities";
 export function createProxyObjectForSandboxContext<T>(
   callbackRegistry: Map<string, Function>,
   objectId: string,
-  data: any
+  data: any,
+  iteratorId?: string | undefined,
 ): T {
   return createObjectWrapperWithCallbackRegistry(
     [],
     callbackRegistry,
-    [],
+    iteratorId,
     objectId,
     data
   );
@@ -38,13 +39,13 @@ export function createObjectWrapperFactory<T>(
             return createObjectWrapperWithCallbackRegistry(
               [prop],
               callbackRegistry,
-              []
+              undefined
             );
           default:
             return createObjectWrapperWithCallbackRegistry(
               [prop],
               callbackRegistry,
-              []
+              undefined
             );
         }
       } catch (e) {

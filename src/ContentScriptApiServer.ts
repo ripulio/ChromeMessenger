@@ -21,35 +21,6 @@ export function createContentScriptApiServer<T extends object>(
             request.objectId === undefined
               ? globalContext
               : objectStore.get(request.objectId);
-          if (isIteratorStart(request)) {
-            const object = objectStore.get(request.objectId);
-            const iterator = object[Symbol.iterator]();
-            const iteratorId = storeObjectReference(iterator);
-            const firstResult = iterator.next();
-            const done = firstResult.done;
-            const response = createIteratorResponse(
-              firstResult.value,
-              request.correlationId,
-              iteratorId,
-              done
-            );
-            sendResponse(response);
-            return false;
-          }
-          if (isIteratorNext(request)) {
-            const iterator = objectStore.get(request.iteratorId);
-            const result = iterator.next();
-            const done = result.done;
-
-            const response = createIteratorResponse(
-              result.value,
-              request.correlationId,
-              request.iteratorId,
-              done
-            );
-            sendResponse(response);
-            return false;
-          }
           if (isComparison(request.functionPath)) {
             const result = executeComparison(
               request.payload[0],
@@ -243,22 +214,6 @@ function isAssignment(payload: any): boolean {
   return payload.length > 0 && payload[0].type === "assignment";
 }
 
-function isIteratorStart(request: any): boolean {
-  return (
-    request?.functionPath?.length > 0 &&
-    request.functionPath[0] === "iterator_next" &&
-    request.iteratorId === undefined
-  );
-}
-
-function isIteratorNext(request: any): boolean {
-  return (
-    request?.functionPath?.length > 0 &&
-    request.functionPath[0] === "iterator_next" &&
-    request.iteratorId !== undefined
-  );
-}
-
 function isComparison(path: string[]): boolean {
   return path.length > 0 && path[0] === "__compare";
 }
@@ -412,13 +367,8 @@ export type ObjectReferenceResponse = {
   correlationId: string;
 };
 
-export type IteratorResponse = ObjectReferenceResponse & {
-  iteratorId: string;
-  done: boolean;
-};
-
 export type IterableResponse = ObjectReferenceResponse & {
-  iterableItemIds: string[];
+  iteratorId?: string | undefined;
 };
 
 function createResponse(
@@ -442,12 +392,10 @@ function createResponse(
     correlationId: correlationId,
   };
 
-  /*
   const isIterable = result[Symbol.iterator] !== undefined;
   if (isIterable) {
-    return addIterablesToResponse(result, resultMessage);
+    resultMessage = addIterablesToResponse(result, resultMessage);
   }
-  */
 
   if (shouldStoreObjectReference(result)) {
     resultMessage.objectId = storeObjectReference(result);
@@ -460,49 +408,15 @@ function addIterablesToResponse(
   result: any,
   message: ObjectReferenceResponse
 ): ObjectReferenceResponse {
-  const iteratedValues = [...result];
-  const storedItems = [];
-  for (let i = 0; i < iteratedValues.length; i++) {
-    const value = iteratedValues[i];
-    const storedItemId = storeObjectReference(value);
-    storedItems.push(storedItemId);
-  }
+  const iterator = result[Symbol.iterator];
+
+  
+  const iteratorId = storeObjectReference(iterator);
 
   let resultMessage: IterableResponse = {
     ...message,
-    iterableItemIds: storedItems,
-  };
-
-  return resultMessage;
-}
-
-function createIteratorResponse(
-  result: any,
-  correlationId: string,
-  iteratorId: string,
-  done: boolean
-): ObjectReferenceResponse {
-  const serializeObject = (data: any) => {
-    const obj: any = {};
-    for (let key in data) {
-      obj[key] = data[key];
-    }
-    return obj;
-  };
-
-  const shouldSerialize = shouldSerializeResult(result);
-
-  let resultMessage: IteratorResponse = {
-    data: shouldSerialize ? serializeObject(result) : result,
-    messageType: "objectReferenceResponse",
-    correlationId: correlationId,
     iteratorId: iteratorId,
-    done: done,
   };
-
-  if (shouldStoreObjectReference(result)) {
-    resultMessage.objectId = storeObjectReference(result);
-  }
 
   return resultMessage;
 }
