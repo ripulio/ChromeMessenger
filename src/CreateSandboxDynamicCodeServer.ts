@@ -1,11 +1,11 @@
 import { createObjectWrapperFactory, createProxyObjectForSandboxContext } from "./CreateProxyObjectForSandboxContext";
 import { Function } from "./TypeUtilities";
 
-const pendingPromises = new Map<string, (arg: any, raw: MessageEvent<any>) => void>();
+const pendingPromises = new Map<string, (proxy: any, raw: MessageEvent<any>) => void>();
 
 export function waitForResponse<T>(correlationId: string): Promise<{proxy: T[keyof T], raw: MessageEvent<any>}> {
   const promise = new Promise<{proxy: T[keyof T], raw: MessageEvent<any>}>((resolve, reject) => {
-    pendingPromises.set(correlationId, resolve);
+    pendingPromises.set(correlationId, (proxy, raw) => resolve({proxy, raw}));
     // todo handle timeout
   });
   return promise;

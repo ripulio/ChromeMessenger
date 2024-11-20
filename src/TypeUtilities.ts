@@ -64,11 +64,7 @@ export function createObjectWrapperWithCallbackRegistry<T>(
           return objectId;
         }
 
-        if (prop === Symbol.asyncIterator) {
-          return () => createObjectWrapperWithCallbackRegistry(path, callbackRegistry, iteratorId, objectId, data);
-        }
-
-        if (prop === Symbol.iterator) {
+        if (prop === Symbol.asyncIterator || prop === Symbol.iterator) {
           return () => createObjectWrapperWithCallbackRegistry(path, callbackRegistry, iteratorId, objectId, data);
         }
       }
@@ -77,7 +73,7 @@ export function createObjectWrapperWithCallbackRegistry<T>(
 
       if (prop === "then") {
         console.error("then called directly on object in get trap", newPath);
-        return Promise.resolve();
+        return undefined;
       }
 
       if (data && data[prop] && typeof data[prop] !== "object") {
@@ -85,15 +81,15 @@ export function createObjectWrapperWithCallbackRegistry<T>(
         return () => Promise.resolve(data[prop]);
       }
 
-      return (...args: any[]) => {
+      return (...args: any[]): Promise<any> => {
 
         if (typeof prop === "symbol" && prop === Symbol.asyncIterator) {
-          return handleAsyncIteration(path, callbackRegistry, objectId, data);
+          return Promise.resolve(handleAsyncIteration(path, callbackRegistry, objectId, data));
         }
 
         if (typeof prop === "symbol" && prop === Symbol.iterator) {
           console.error("iterator called directly on object in get trap", newPath);
-          return undefined;
+          return Promise.resolve(undefined);
         }
 
         const wrappedArgs = args.map((arg) =>
@@ -107,12 +103,6 @@ export function createObjectWrapperWithCallbackRegistry<T>(
           ...wrappedArgs
         );
       };
-    },
-    ownKeys(target: any) {
-      return Reflect.ownKeys(data);
-    },
-    getOwnPropertyDescriptor(target: any, prop: string) {
-      return Reflect.getOwnPropertyDescriptor(data, prop);
     }
   };
 
@@ -125,7 +115,7 @@ function isProxy(obj: any): string | undefined {
   return obj[IS_PROXY];
 }
 
-function functionInvocationHandler<T>(
+async function functionInvocationHandler<T>(
   functionPath: string[],
   node: keyof T,
   objectId: string | undefined,
@@ -165,7 +155,8 @@ function functionInvocationHandler<T>(
     console.error("Error sending message", e);
   }
 
-  return waitForResponse<T>(correlationId).then(({proxy, raw}) => proxy);
+  const response = await waitForResponse<T>(correlationId);
+  return response.proxy;
 }
 
 export function createFunctionWrapperWithCallbackRegistry<T>(
