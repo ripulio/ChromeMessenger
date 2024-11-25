@@ -376,6 +376,14 @@ function createResponse(
   correlationId: string
 ): ObjectReferenceResponse {
 
+  const baseResponse = { messageType: "objectReferenceResponse" as const, correlationId: correlationId };
+  if (result === undefined) {
+    return {
+      ...baseResponse,
+      data: undefined,
+    };
+  }
+
   const serializeObject = (data: any) => {
     const obj: any = {};
     for (let key in data) {
@@ -386,10 +394,9 @@ function createResponse(
 
   const shouldSerialize = shouldSerializeResult(result);
 
-  let resultMessage: ObjectReferenceResponse = {
+  let resultMessage : any = {
+    ...baseResponse,
     data: shouldSerialize ? serializeObject(result) : result,
-    messageType: "objectReferenceResponse",
-    correlationId: correlationId,
   };
 
   const isIterable = result[Symbol.iterator] !== undefined;
@@ -398,7 +405,7 @@ function createResponse(
   }
 
   if (shouldStoreObjectReference(result)) {
-    resultMessage.objectId = storeObjectReference(result);
+    resultMessage = {...resultMessage, objectId: storeObjectReference(result) };
   }
 
   return resultMessage;
