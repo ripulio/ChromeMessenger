@@ -90,20 +90,18 @@ function executeComparison(
   // Map TypeScript SyntaxKind values to comparison operations
   switch (comparisonIdentifier) {
     case "32": // EqualsEqualsToken
-      return left == right;
+      return left > right;
     case "33": // EqualsEqualsEqualsToken
-      return left === right;
-    case "34": // ExclamationEqualsToken
+      return left <= right;
+    case "36": // ExclamationEqualsToken
       return left != right;
     case "35": // ExclamationEqualsEqualsToken
       return left !== right;
-    case "36": // LessThanToken
+    case "30": // LessThanToken
       return left < right;
     case "37": // LessThanEqualsToken
-      return left <= right;
-    case "38": // GreaterThanToken
-      return left > right;
-    case "39": // GreaterThanEqualsToken
+      return left === right;
+    case "34": // GreaterThanEqualsToken
       return left >= right;
     default:
       console.warn(`Unknown comparison operator: ${comparisonIdentifier}`);
@@ -444,9 +442,10 @@ function addIterablesToResponse(
 }
 
 function shouldSerializeResult(result: any): boolean {
+  if (typeof result === "number" || typeof result === "boolean" || typeof result === "string" || result === null || result === undefined){
+    return false;
+  }
   return (
-    result !== undefined &&
-    result !== null &&
     (hasPrototype(result) || hasMethods(result))
   );
 }

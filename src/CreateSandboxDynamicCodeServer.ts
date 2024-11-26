@@ -51,8 +51,12 @@ export function createSandboxDynamicCodeServer(
       const correlationId = event.data.correlationId;
       if (pendingPromises.has(correlationId)) {
         const objectId = event.data.objectId;
-        const proxy = createProxyObjectForSandboxContext(callbackRegistry, objectId, event.data.data);
-        pendingPromises.get(correlationId)?.(proxy, event.data);
+        const returnValue = typeof event.data.data === "object" 
+        ? createProxyObjectForSandboxContext(callbackRegistry, objectId, event.data.data)
+        : event.data.data;
+
+        
+        pendingPromises.get(correlationId)?.(returnValue, event.data);
         pendingPromises.delete(correlationId);
       }
       return;
