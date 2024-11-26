@@ -59,6 +59,9 @@ export function createObjectWrapperWithCallbackRegistry<T>(
 ): T {
   const handler = {
     get(target: any, prop: string) {
+      if (prop === "isProxy"){
+        return objectId;
+      }
       if (typeof prop === "symbol") {
         if (prop === IS_PROXY) {
           return objectId;
