@@ -323,6 +323,21 @@ function executeFunctionCall(
   const functionToCall = currentTarget[functionName];
 
   if (functionToCall === undefined) {
+    if (payload.length === 0){
+      // potential index call - no args only a path:
+      let result = target;
+      for (let i = 0; i < messagePath.length - 1; i++) {
+        if (result[messagePath[i]] === undefined) {
+          throw new Error(
+            `Path ${messagePath.slice(0, i + 1).join(".")} not found in target`
+          );
+        }
+        result = result[messagePath[i]];
+      } 
+
+      sendResponse(createResponse(result, correlationId));
+      return false;
+    }
     throw new Error(`${messagePath.join(".")} not found on target`);
   }
 
