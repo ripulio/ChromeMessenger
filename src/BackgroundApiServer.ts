@@ -5,6 +5,7 @@ export function createBackgroundApiServer<T extends object>(
 ): void {
   chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
+    console.log("BackgroundApiServer request", request);
     if (request.messageType == "sandboxCallback") {
       // send message to sandbox iframe
       const tabId = request.sandboxTabId;
@@ -52,20 +53,26 @@ export function createBackgroundApiServer<T extends object>(
       throw new Error(`Function ${messagePath} not found in backgroundApi`);
     }
 
+    let baseMessage: any = {};
+
+    if (request.correlationId) {
+      baseMessage.correlationId = request.correlationId;
+    }
+
     if (typeof functionToCall === "function") {
       Promise.resolve(
         (functionToCall as Function).apply(target, [...request.payload, sender])
       )
         .then((result) => {
-          sendResponse(result);
+          sendResponse({...baseMessage, ...result});
         })
         .catch((error) => {
           console.error(`Error in ${messagePath.join(".")}:`, error);
-          sendResponse({ error: error.message });
+          sendResponse({...baseMessage, error: error.message });
         });
     } else {
       // if its not a function, then it should be a value
-      sendResponse(functionToCall);
+      sendResponse({...baseMessage, ...functionToCall});
     }
 
     // Return true to indicate that we will send a response asynchronously

@@ -51,14 +51,23 @@ export function createSandboxDynamicCodeServer(
       const correlationId = event.data.correlationId;
       if (pendingPromises.has(correlationId)) {
         const objectId = event.data.objectId;
+        const iteratorId = event.data.iteratorId;
+
         const returnValue = typeof event.data.data === "object" 
-        ? createProxyObjectForSandboxContext(callbackRegistry, objectId, event.data.data)
+        ? createProxyObjectForSandboxContext(callbackRegistry, objectId, event.data.data, iteratorId)
         : event.data.data;
 
         
         pendingPromises.get(correlationId)?.(returnValue, event.data);
         pendingPromises.delete(correlationId);
       }
+      return;
+    }
+
+    if (event.data.correlationId) {
+      console.log("correlationId", event.data.correlationId);
+      pendingPromises.get(event.data.correlationId)?.(null, event.data);
+      pendingPromises.delete(event.data.correlationId);
       return;
     }
 
