@@ -390,10 +390,10 @@ function createResponse(
 ): ObjectReferenceResponse {
 
   const baseResponse = { messageType: "objectReferenceResponse" as const, correlationId: correlationId };
-  if (result === undefined) {
+  if (!result) {
     return {
       ...baseResponse,
-      data: undefined,
+      data: result,
     };
   }
 
