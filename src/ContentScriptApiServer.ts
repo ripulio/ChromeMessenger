@@ -412,7 +412,7 @@ function createResponse(
     data: shouldSerialize ? serializeObject(result) : result,
   };
 
-  const isIterable = result[Symbol.iterator] !== undefined;
+  const isIterable = result !== undefined && result !== null && result[Symbol.iterator] !== undefined;
   if (isIterable) {
     resultMessage = addIterablesToResponse(result, resultMessage);
   }
