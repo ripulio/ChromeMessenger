@@ -378,6 +378,7 @@ export type ObjectReferenceResponse = {
   objectId?: string | undefined;
   iteratorId?: string | undefined;
   correlationId: string;
+  deserializeData?: boolean;
 };
 
 export type IterableResponse = ObjectReferenceResponse & {
@@ -397,7 +398,12 @@ function createResponse(
     };
   }
 
-  const serializeObject = (data: any) => {
+  const seen = new WeakSet();
+  const makeObjectCloneable = (data: any) => {
+    if (seen.has(data)) { // circular reference
+      return undefined;
+    }
+    seen.add(data);
     const obj: any = {};
     for (let key in data) {
       obj[key] = data[key];
@@ -409,7 +415,8 @@ function createResponse(
 
   let resultMessage : any = {
     ...baseResponse,
-    data: shouldSerialize ? serializeObject(result) : result,
+    data: shouldSerialize ? JSON.stringify(makeObjectCloneable(result)) : result,
+    deserializeData: shouldSerialize,
   };
 
   const isIterable = result !== undefined && result !== null && result[Symbol.iterator] !== undefined;

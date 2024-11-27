@@ -50,13 +50,14 @@ export function createSandboxDynamicCodeServer(
     if (event.data?.messageType === "objectReferenceResponse") {
       const correlationId = event.data.correlationId;
       if (pendingPromises.has(correlationId)) {
+        const objectData =  event.data.deserializeData ? JSON.parse(event.data.data) : event.data.data;
         const objectId = event.data.objectId;
         const iteratorId = event.data.iteratorId;
 
 
-        const returnValue = typeof event.data.data === "object" && event.data.error === undefined 
-        ? createProxyObjectForSandboxContext(callbackRegistry, objectId, event.data.data, iteratorId)
-        : event.data.data;
+        const returnValue = typeof objectData === "object" && event.data.error === undefined 
+        ? createProxyObjectForSandboxContext(callbackRegistry, objectId, objectData, iteratorId)
+        : objectData;
 
         
         pendingPromises.get(correlationId)?.(returnValue, event.data, event.data.error);
