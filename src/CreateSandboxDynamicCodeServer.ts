@@ -1,11 +1,11 @@
 import { createObjectWrapperFactory, createProxyObjectForSandboxContext } from "./CreateProxyObjectForSandboxContext";
 import { Function } from "./TypeUtilities";
 
-const pendingPromises = new Map<string, (proxy: any, raw: MessageEvent<any>) => void>();
+const pendingPromises = new Map<string, (proxy: any, raw: MessageEvent<any>, error?: string) => void>();
 
-export function waitForResponse<T>(correlationId: string): Promise<{proxy: T[keyof T], raw: MessageEvent<any>}> {
-  const promise = new Promise<{proxy: T[keyof T], raw: MessageEvent<any>}>((resolve, reject) => {
-    pendingPromises.set(correlationId, (proxy, raw) => resolve({proxy, raw}));
+export function waitForResponse<T>(correlationId: string): Promise<{proxy: T[keyof T], raw: MessageEvent<any>, error?: string}> {
+  const promise = new Promise<{proxy: T[keyof T], raw: MessageEvent<any>, error?: string}>((resolve, reject) => {
+    pendingPromises.set(correlationId, (proxy, raw, error) => error ? reject(error) : resolve({proxy, raw}));
     // todo handle timeout
   });
   return promise;
@@ -53,12 +53,13 @@ export function createSandboxDynamicCodeServer(
         const objectId = event.data.objectId;
         const iteratorId = event.data.iteratorId;
 
-        const returnValue = typeof event.data.data === "object" 
+
+        const returnValue = typeof event.data.data === "object" && event.data.error !== undefined 
         ? createProxyObjectForSandboxContext(callbackRegistry, objectId, event.data.data, iteratorId)
         : event.data.data;
 
         
-        pendingPromises.get(correlationId)?.(returnValue, event.data);
+        pendingPromises.get(correlationId)?.(returnValue, event.data, event.data.error);
         pendingPromises.delete(correlationId);
       }
       return;

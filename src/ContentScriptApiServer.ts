@@ -302,12 +302,17 @@ function executeFunctionCall(
 ): boolean {
   console.log("Recieved function call", messagePath, payload, target);
 
+  const returnError = (message: string) => {
+    console.error(message);
+    sendResponse(createResponse( {error: message}, correlationId));
+    return false;
+  }
+
   let currentTarget = target;
   for (let i = 0; i < messagePath.length - 1; i++) {
     if (currentTarget[messagePath[i]] === undefined) {
-      throw new Error(
-        `Path ${messagePath.slice(0, i + 1).join(".")} not found in target ${currentTarget}`
-      );
+      const message = `Path ${messagePath.slice(0, i + 1).join(".")} not found in target ${currentTarget}`
+      return returnError(message);
     }
     currentTarget = currentTarget[messagePath[i]];
   }
@@ -315,16 +320,15 @@ function executeFunctionCall(
   const functionName = messagePath[messagePath.length - 1];
   const functionToCall = currentTarget[functionName];
 
+
   if (functionToCall === undefined) {
     if (payload.length === 0){
       // potential index call - no args only a path:
       let result = target;
-      for (let i = 0; i < messagePath.length - 1; i++) {
+      for (let i = 0; i < messagePath.length; i++) {
         if (result[messagePath[i]] === undefined) {
           const message = `Path ${messagePath.slice(0, i + 1).join(".")} not found in target ${currentTarget}`
-          console.error(message);
-          sendResponse(createResponse( {error: message}, correlationId));
-          return false;
+          return returnError(message);
         }
         result = result[messagePath[i]];
       } 
@@ -332,15 +336,8 @@ function executeFunctionCall(
       sendResponse(createResponse(result, correlationId));
       return false;
     }
-    throw new Error(`${messagePath.join(".")} not found on target`);
-  }
 
-  if (typeof functionToCall !== "function") {
-    // its a property access
-    console.log("Property access", functionToCall);
-    const response = createResponse(functionToCall, correlationId);
-    sendResponse(response);
-    return false; // Indicate that we've already sent the response
+    return returnError(`${messagePath.join(".")} not found on target ${currentTarget}`);
   }
 
   console.log("Transforming events in payload", payload);

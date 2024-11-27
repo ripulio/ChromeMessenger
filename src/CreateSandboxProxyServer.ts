@@ -1,3 +1,5 @@
+import { transpileTypescript } from "dynamic-ts-transpiler";
+
 // to run on page that has sandboxed iframe
 export function createSandboxProxyServer(iframeId: string) {
   // on message
