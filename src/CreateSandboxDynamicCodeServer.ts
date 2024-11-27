@@ -54,7 +54,7 @@ export function createSandboxDynamicCodeServer(
         const iteratorId = event.data.iteratorId;
 
 
-        const returnValue = typeof event.data.data === "object" && event.data.error !== undefined 
+        const returnValue = typeof event.data.data === "object" && event.data.error === undefined 
         ? createProxyObjectForSandboxContext(callbackRegistry, objectId, event.data.data, iteratorId)
         : event.data.data;
 
