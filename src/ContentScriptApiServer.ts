@@ -413,11 +413,27 @@ function createResponse(
 
   const shouldSerialize = shouldSerializeResult(result);
 
+
   let resultMessage : any = {
     ...baseResponse,
-    data: shouldSerialize ? JSON.stringify(makeObjectCloneable(result)) : result,
     deserializeData: shouldSerialize,
   };
+
+  if (shouldSerialize){
+    try{
+      const cloneableObject = makeObjectCloneable(result);
+    if (cloneableObject){
+      resultMessage.data = JSON.stringify(cloneableObject);
+    } else {
+      resultMessage.data = result;
+      }
+    } catch (error) {
+      console.error("Error serializing object", error);
+      throw error;
+    }
+  } else {
+    resultMessage.data = result;
+  }
 
   const isIterable = result !== undefined && result !== null && result[Symbol.iterator] !== undefined;
   if (isIterable) {
