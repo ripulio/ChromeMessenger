@@ -340,6 +340,13 @@ function executeFunctionCall(
     return returnError(`${messagePath.join(".")} not found on target ${currentTarget}`);
   }
 
+
+  if (typeof functionToCall !== "function" && payload.length === 0) {
+    const response = createResponse(functionToCall, correlationId);
+    sendResponse(response);
+    return false;
+  }
+  
   console.log("Transforming events in payload", payload);
   const eventedPayload = transformEventsInPayload(payload);
 
