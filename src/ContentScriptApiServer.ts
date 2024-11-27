@@ -302,16 +302,11 @@ function executeFunctionCall(
 ): boolean {
   console.log("Recieved function call", messagePath, payload, target);
 
-  if (target === nullTarget) {
-    sendResponse(createResponse(null, correlationId));
-    return false;
-  }
-
   let currentTarget = target;
   for (let i = 0; i < messagePath.length - 1; i++) {
     if (currentTarget[messagePath[i]] === undefined) {
       throw new Error(
-        `Path ${messagePath.slice(0, i + 1).join(".")} not found in target`
+        `Path ${messagePath.slice(0, i + 1).join(".")} not found in target ${currentTarget}`
       );
     }
     currentTarget = currentTarget[messagePath[i]];
@@ -326,9 +321,10 @@ function executeFunctionCall(
       let result = target;
       for (let i = 0; i < messagePath.length - 1; i++) {
         if (result[messagePath[i]] === undefined) {
-          throw new Error(
-            `Path ${messagePath.slice(0, i + 1).join(".")} not found in target`
-          );
+          const message = `Path ${messagePath.slice(0, i + 1).join(".")} not found in target ${currentTarget}`
+          console.error(message);
+          sendResponse(createResponse( {error: message}, correlationId));
+          return false;
         }
         result = result[messagePath[i]];
       } 
