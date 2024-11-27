@@ -406,7 +406,7 @@ function createResponse(
     seen.add(data);
     const obj: any = {};
     for (let key in data) {
-      obj[key] = data[key];
+      obj[key] = makeObjectCloneable(data[key]);
     }
     return obj;
   };
