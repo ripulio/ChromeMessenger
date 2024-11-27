@@ -398,17 +398,15 @@ function createResponse(
     };
   }
 
-  const seen = new WeakSet();
+
+  // TODO: This is a hack to prevent circular references and functions from being serialized.
+  // When we need the objects in the iframe, revisit this.
   const makeObjectCloneable = (data: any) => {
-    if (seen.has(data)) { // circular reference
-      return undefined;
-    }
-    seen.add(data);
-    const obj: any = {};
-    for (let key in data) {
-      obj[key] = makeObjectCloneable(data[key]);
-    }
-    return obj;
+      const obj: any = {};
+      for (let key in data) {
+        obj[key] = (typeof data[key] === 'object' || typeof data[key] === 'function') ? undefined : data[key];
+      }
+      return obj;
   };
 
   const shouldSerialize = shouldSerializeResult(result);
