@@ -79,11 +79,6 @@ export function createObjectWrapperWithCallbackRegistry<T>(
         return undefined;
       }
 
-      if (data && data[prop] && typeof data[prop] !== "object") {
-        console.error("Returning data", newPath, data[prop]);
-        return () => Promise.resolve(data[prop]);
-      }
-
       return (...args: any[]): Promise<any> => {
 
         if (typeof prop === "symbol" && prop === Symbol.asyncIterator) {
@@ -93,6 +88,11 @@ export function createObjectWrapperWithCallbackRegistry<T>(
         if (typeof prop === "symbol" && prop === Symbol.iterator) {
           console.error("iterator called directly on object in get trap", newPath);
           return Promise.resolve(undefined);
+        }
+
+        if (data && data[prop] && typeof data[prop] !== "object" && args.length === 0) {
+          console.error("Returning data", newPath, data[prop]);
+          return Promise.resolve(data[prop]);
         }
 
         const wrappedArgs = args.map((arg) =>
