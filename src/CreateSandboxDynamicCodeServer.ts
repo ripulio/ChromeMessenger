@@ -29,6 +29,9 @@ export function createSandboxDynamicCodeServer(
       return;
     }
 
+    if (event.data.deserializeData){
+      event.data.data = JSON.parse(event.data.data);
+    }
     // callback from content script, execute against
     // callback registry
     if (event.data?.messageType === "sandboxCallback") {
@@ -50,17 +53,21 @@ export function createSandboxDynamicCodeServer(
     if (event.data?.messageType === "objectReferenceResponse") {
       const correlationId = event.data.correlationId;
       if (pendingPromises.has(correlationId)) {
-        const objectData =  event.data.deserializeData ? JSON.parse(event.data.data) : event.data.data;
+        const objectData =  event.data.deserializeData && typeof event.data.data === "string" ? JSON.parse(event.data.data) : event.data.data;
         const objectId = event.data.objectId;
         const iteratorId = event.data.iteratorId;
 
-
-        const returnValue = typeof objectData === "object" && event.data.error === undefined 
-        ? createProxyObjectForSandboxContext(callbackRegistry, objectId, objectData, iteratorId)
-        : objectData;
-
+        if (objectData === undefined){
+          pendingPromises.get(correlationId)?.(undefined, event.data);
+          pendingPromises.delete(correlationId);
+          return;
+        }
+        if (objectData.error){
+          pendingPromises.get(correlationId)?.(undefined, event.data, objectData.error);
+        }
+        const returnValue =  createProxyObjectForSandboxContext(callbackRegistry, objectId, objectData, iteratorId);
         
-        pendingPromises.get(correlationId)?.(returnValue, event.data, event.data.error);
+        pendingPromises.get(correlationId)?.(returnValue, event.data, objectData.error);
         pendingPromises.delete(correlationId);
       }
       return;

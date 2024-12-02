@@ -12,40 +12,40 @@ export type ApiWrapper<T> = {
     : ApiWrapper<T[K]>;
 };
 
-function handleAsyncIteration(path: string[], callbackRegistry: Map<string, Function>, objectId: string | undefined, data: any) {
+function handleAsyncIteration(
+  objectId: string | undefined
+) {
   return async function* () {
     const getNext = async () => {
       const correlationId = generateUniqueId();
       const message = {
         correlationId: correlationId,
         messageType: "ProxyInvocation",
-        functionPath: ["getNext"],
+        functionPath: ["next"],
         objectId: objectId,
         payload: [],
         source: "sandbox",
-        destination: "content"
+        destination: "content",
       };
 
       window.parent.postMessage(message, "*");
 
-      const {raw} = await waitForResponse<any>(correlationId);
+      const { proxy, raw } = await waitForResponse<any>(correlationId);
 
-      objectId = raw.data.iteratorId;
-
+      const done = raw.data.deserializeData ? JSON.parse(raw.data).done : raw.data.done; 
       return {
-        value: createProxyObjectForSandboxContext(
-          callbackRegistry,
-          raw.data.objectId,
-          raw.data
-        ),
-        done: raw.data.done,
+        value: proxy,
+        done: done
       };
     };
     let done = false;
-    while (!done){
+    while (!done) {
       const { value, done: nowDone } = await getNext();
       done = nowDone;
-      yield value;
+      if (done){
+        return;
+      }
+      yield await value.value();
     }
   };
 }
@@ -58,61 +58,125 @@ export function createObjectWrapperWithCallbackRegistry<T>(
   data?: any
 ): T {
   const handler = {
-    get(target: any, prop: string) {
-      if (prop === "isProxy"){
+    get(target: any, prop: any) {
+      if (propIsProxy(prop)) {
         return objectId;
       }
       if (typeof prop === "symbol") {
-        if (prop === IS_PROXY) {
-          return objectId;
+        if (prop === Symbol.iterator || prop === Symbol.asyncIterator) {
+          return handleAsyncIteration(iteratorId);
         }
-
-        if (prop === Symbol.asyncIterator || prop === Symbol.iterator) {
-          return () => createObjectWrapperWithCallbackRegistry(path, callbackRegistry, iteratorId, objectId, data);
+        if (prop === Symbol.toStringTag) {
+          console.error("toStringTag called directly on object in get trap");
+          return data.toString();
+        }
+        if (prop === Symbol.toPrimitive) {
+          return (hint: string) => (hint === "number" ? data : data.toString());
         }
       }
 
-      const newPath = [...path, prop];
+      if (prop === "toString") {
+        console.error("toString called directly on object in get trap");
+        return () => data.toString();
+      }
+
+      if (prop === "valueOf") {
+        console.error("valueOf called directly on object in get trap");
+        return () => data.valueOf();
+      }
+
+      if (prop === "toPrimitive") {
+        console.error("toPrimitive called directly on object in get trap");
+        return (hint: string) => (hint === "number" ? data : data.toString());
+      }
 
       if (prop === "then") {
-        console.error("then called directly on object in get trap", newPath);
+        console.error("then called directly on object in get trap", [
+          ...path,
+          prop,
+        ]);
         return undefined;
       }
 
-      return (...args: any[]): Promise<any> => {
-
-        if (typeof prop === "symbol" && prop === Symbol.asyncIterator) {
-          return Promise.resolve(handleAsyncIteration(path, callbackRegistry, objectId, data));
-        }
-
-        if (typeof prop === "symbol" && prop === Symbol.iterator) {
-          console.error("iterator called directly on object in get trap", newPath);
-          return Promise.resolve(undefined);
-        }
-
-        if (data && data[prop] && typeof data[prop] !== "object" && args.length === 0) {
-          console.error("Returning data", newPath, data[prop]);
-          return Promise.resolve(data[prop]);
-        }
-
-        const wrappedArgs = args.map((arg) =>
-          transformArg(arg, callbackRegistry)
-        );
-
-        return functionInvocationHandler(
-          path,
-          prop as keyof T,
-          objectId,
-          ...wrappedArgs
-        );
-      };
-    }
+      return createFunctionProxy(
+        prop,
+        path,
+        callbackRegistry,
+        (prop === "done" || prop === "next") && iteratorId
+          ? iteratorId
+          : objectId,
+        data
+      );
+    },
+    apply(target: any, thisArg: any, args: any[]) {
+      console.error("apply called on object in get trap", thisArg);
+      return undefined;
+    },
+    [Symbol.toStringTag]: () => data.toString(),
+    toString: () => data.toString(),
+    valueOf: () => data.valueOf(),
+    [Symbol.toPrimitive]: (hint: string) => {
+      // hint can be 'number', 'string', or 'default'
+      return hint === "number" ? data : data.toString();
+    },
   };
 
-  return new Proxy({ [IS_PROXY]: true } as T, handler) as unknown as T;
+  return new Proxy(
+    {
+      [IS_PROXY]: true,
+      [Symbol.toStringTag]: data?.toString(),
+      [Symbol.toPrimitive]: (hint: string) =>
+        hint === "number" ? data : data.toString(),
+    } as T,
+    handler
+  ) as unknown as T;
+}
+
+function createFunctionProxy(
+  prop: any,
+  path: string[],
+  callbackRegistry: Map<string, Function>,
+  objectId: string | undefined,
+  data: any
+) {
+  return new Proxy(function () {}, {
+    apply(target: any, thisArg: any, args: any[]) {
+      if (typeof prop === "symbol" && prop === Symbol.asyncIterator) {
+        return handleAsyncIteration(objectId);
+      }
+
+      if (typeof prop === "symbol" && prop === Symbol.iterator) {
+        console.error("iterator called directly on object in apply trap", [
+          ...path,
+          prop,
+        ]);
+        return Promise.resolve(undefined);
+      }
+
+      if (
+        data &&
+        data[prop] &&
+        typeof data[prop] !== "object" &&
+        args.length === 0
+      ) {
+        //console.error("Returning data", [...path, prop], data[prop]);
+        //return Promise.resolve(data[prop]);
+      }
+
+      const wrappedArgs = args.map((arg) =>
+        transformArg(arg, callbackRegistry)
+      );
+
+      return functionInvocationHandler(path, prop, objectId, ...wrappedArgs);
+    },
+  });
 }
 
 const IS_PROXY = Symbol("isProxy");
+
+function propIsProxy(prop: string) {
+  return prop === "isProxy" || (typeof prop === "symbol" && prop === IS_PROXY);
+}
 
 function isProxy(obj: any): string | undefined {
   return obj[IS_PROXY];
@@ -120,14 +184,14 @@ function isProxy(obj: any): string | undefined {
 
 async function functionInvocationHandler<T>(
   functionPath: string[],
-  node: keyof T,
+  prop: any,
   objectId: string | undefined,
   ...args: any[]
 ): Promise<T[keyof T]> {
-  if (node === "then") {
+  if (prop === "then") {
     console.error(
       "then called directly on object in function invocation trap",
-      [...functionPath, node]
+      [...functionPath, prop]
     );
   }
   const correlationId = generateUniqueId();
@@ -135,7 +199,7 @@ async function functionInvocationHandler<T>(
   const message = {
     correlationId: correlationId,
     messageType: "ProxyInvocation",
-    functionPath: [...functionPath, node],
+    functionPath: [...functionPath, prop],
     objectId: objectId,
     payload: args,
     source: "sandbox",

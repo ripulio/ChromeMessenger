@@ -140,12 +140,15 @@ function injectStoredObjectReferences(
 ) {
   for (const key in payload) {
     const arg = payload[key];
-    if (
-      typeof arg === "object" &&
-      arg !== null &&
-      arg.type === "objectReference"
-    ) {
-      payload[key] = objectStore.get(arg.objectId);
+    if (typeof arg === "object") {
+      // replace objectReference with actual object
+      if (arg !== null && arg.type === "objectReference") {
+        payload[key] = objectStore.get(arg.objectId);
+      }
+      else {
+        // recursively inject object references
+        payload[key] = injectStoredObjectReferences(arg, objectStore);
+      }
     }
   }
 
@@ -304,14 +307,16 @@ function executeFunctionCall(
 
   const returnError = (message: string) => {
     console.error(message);
-    sendResponse(createResponse( {error: message}, correlationId));
+    sendResponse(createResponse({ error: message }, correlationId));
     return false;
-  }
+  };
 
   let currentTarget = target;
   for (let i = 0; i < messagePath.length - 1; i++) {
     if (currentTarget[messagePath[i]] === undefined) {
-      const message = `Path ${messagePath.slice(0, i + 1).join(".")} not found in target ${currentTarget}`
+      const message = `Path ${messagePath
+        .slice(0, i + 1)
+        .join(".")} not found in target ${currentTarget}`;
       return returnError(message);
     }
     currentTarget = currentTarget[messagePath[i]];
@@ -320,33 +325,35 @@ function executeFunctionCall(
   const functionName = messagePath[messagePath.length - 1];
   const functionToCall = currentTarget[functionName];
 
-
   if (functionToCall === undefined) {
-    if (payload.length === 0){
+    if (payload.length === 0) {
       // potential index call - no args only a path:
       let result = target;
       for (let i = 0; i < messagePath.length; i++) {
-        if (result[messagePath[i]] === undefined) {
-          const message = `Path ${messagePath.slice(0, i + 1).join(".")} not found in target ${currentTarget}`
+        if (result === undefined){
+          const message = `Path ${messagePath
+            .slice(0, i + 1)
+            .join(".")} access on undefined`;
           return returnError(message);
         }
         result = result[messagePath[i]];
-      } 
+      }
 
       sendResponse(createResponse(result, correlationId));
       return false;
     }
 
-    return returnError(`${messagePath.join(".")} not found on target ${currentTarget}`);
+    return returnError(
+      `${messagePath.join(".")} not found on target ${currentTarget}`
+    );
   }
-
 
   if (typeof functionToCall !== "function" && payload.length === 0) {
     const response = createResponse(functionToCall, correlationId);
     sendResponse(response);
     return false;
   }
-  
+
   console.log("Transforming events in payload", payload);
   const eventedPayload = transformEventsInPayload(payload);
 
@@ -389,8 +396,10 @@ function createResponse(
   result: any,
   correlationId: string
 ): ObjectReferenceResponse {
-
-  const baseResponse = { messageType: "objectReferenceResponse" as const, correlationId: correlationId };
+  const baseResponse = {
+    messageType: "objectReferenceResponse" as const,
+    correlationId: correlationId,
+  };
   if (!result) {
     return {
       ...baseResponse,
@@ -398,32 +407,20 @@ function createResponse(
     };
   }
 
-
-  // TODO: This is a hack to prevent circular references and functions from being serialized.
-  // When we need the objects in the iframe, revisit this.
-  const makeObjectCloneable = (data: any) => {
-      const obj: any = {};
-      for (let key in data) {
-        obj[key] = (typeof data[key] === 'object' || typeof data[key] === 'function') ? undefined : data[key];
-      }
-      return obj;
-  };
-
   const shouldSerialize = shouldSerializeResult(result);
 
-
-  let resultMessage : any = {
+  let resultMessage: any = {
     ...baseResponse,
     deserializeData: shouldSerialize,
   };
 
-  if (shouldSerialize){
-    try{
+  if (shouldSerialize) {
+    try {
       const cloneableObject = makeObjectCloneable(result);
-    if (cloneableObject){
-      resultMessage.data = JSON.stringify(cloneableObject);
-    } else {
-      resultMessage.data = result;
+      if (cloneableObject) {
+        resultMessage.data = JSON.stringify(cloneableObject);
+      } else {
+        resultMessage.data = JSON.stringify(result);
       }
     } catch (error) {
       console.error("Error serializing object", error);
@@ -433,25 +430,57 @@ function createResponse(
     resultMessage.data = result;
   }
 
-  const isIterable = result !== undefined && result !== null && result[Symbol.iterator] !== undefined;
+  const isIterable =
+    result !== undefined &&
+    result !== null &&
+    result[Symbol.iterator] !== undefined;
   if (isIterable) {
     resultMessage = addIterablesToResponse(result, resultMessage);
   }
 
   if (shouldStoreObjectReference(result)) {
-    resultMessage = {...resultMessage, objectId: storeObjectReference(result) };
+    resultMessage = {
+      ...resultMessage,
+      objectId: storeObjectReference(result),
+    };
   }
 
   return resultMessage;
+}
+
+  // TODO: This is a hack to prevent circular references and functions from being serialized.
+  // When we need the objects in the iframe, revisit this.
+function makeObjectCloneable(data: any): any {
+  if (data === undefined || data === null || typeof data === "function") {
+    return undefined;
+  }
+
+  if (Array.isArray(data)){
+    return {length: data.length};
+  }
+
+  if (typeof data === "object"){
+    const obj: any = {};
+
+    for (let key in data) {
+      obj[key] =
+        (typeof data[key] === "object") || typeof data[key] === "function"
+          ? undefined
+          : data[key];
+    }
+
+    return obj;
+  }
+
+  return data;
 }
 
 function addIterablesToResponse(
   result: any,
   message: ObjectReferenceResponse
 ): ObjectReferenceResponse {
-  const iterator = result[Symbol.iterator];
+  const iterator = result[Symbol.iterator]();
 
-  
   const iteratorId = storeObjectReference(iterator);
 
   let resultMessage: IterableResponse = {
@@ -463,12 +492,16 @@ function addIterablesToResponse(
 }
 
 function shouldSerializeResult(result: any): boolean {
-  if (typeof result === "number" || typeof result === "boolean" || typeof result === "string" || result === null || result === undefined){
+  if (
+    typeof result === "number" ||
+    typeof result === "boolean" ||
+    typeof result === "string" ||
+    result === null ||
+    result === undefined
+  ) {
     return false;
   }
-  return (
-    (hasPrototype(result) || hasMethods(result))
-  );
+  return hasPrototype(result) || hasMethods(result);
 }
 
 function hasPrototype(obj: any): boolean {
