@@ -2,49 +2,59 @@
 export function createSandboxProxyServer(iframeId: string) {
   // on message
   console.log("Creating sandbox proxy server");
-  let sandboxTabId: number | undefined;
-  let contentScriptTabId: number | undefined;
-
-  // proxies messages from sandbox to service worker
-  window.addEventListener("message", (event) => {
-    console.log("Message recieved from sandbox, forwarding to service worker:", event);
-    chrome.runtime.sendMessage(
-      { ...event.data, sandboxTabId: sandboxTabId, contentScriptTabId: contentScriptTabId },
-      (response) => {
-        console.log("Response from service worker:", response);
-        const sandboxWindow = getSandboxWindow(iframeId);
-        if (!sandboxWindow) {
-          console.error("No sandbox window found.");
-          return;
-        }
-        sandboxWindow.postMessage(response, "*");
-      }
-    );
-  });
-
   // proxies messages from service worker to sandbox
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     console.log("Message received from service worker:", message);
+
     const sandboxWindow = getSandboxWindow(iframeId);
-    
+    if (!sandboxWindow) {
+      console.error(
+        `No sandbox iframe found - dropping message ${message}`
+      );
+      return;
+    }
+
     if (message.action === "initializeConfig") {
-      sandboxTabId = message.sandboxTabId;
-      contentScriptTabId = message.contentScriptTabId;
-      if (!sandboxWindow) {
-        console.error("No sandbox window found - cannot send iframe initialization message.");
-        return;
-      }
-      sandboxWindow.postMessage({...message}, "*");
+      registerSendboxOutgoingMessageProxy(
+        message.sandboxTabId,
+        message.contentScriptTabId,
+        sandboxWindow
+      );
+
+      sandboxWindow.postMessage({ ...message }, "*");
       sendResponse({ success: true });
       return false;
     }
 
-    // if message is from background, send to sandbox
-    if (!sandboxWindow) {
-      console.error("No sandbox window found - cannot send message to sandbox.");
-      return;
-    }
+    // forward all messages to sandbox
     sandboxWindow.postMessage(message, "*");
+  });
+}
+
+function registerSendboxOutgoingMessageProxy(
+  sandboxTabId: number,
+  contentScriptTabId: number,
+  sandboxWindow: Window
+) {
+  // listen to messages hitting this window, should always be from sandbox
+  window.addEventListener("message", (event) => {
+    console.log(
+      "Message recieved from sandbox, forwarding to service worker:",
+      event
+    );
+    // forward to service worker
+    chrome.runtime.sendMessage(
+      {
+        ...event.data,
+        sandboxTabId: sandboxTabId,
+        contentScriptTabId: contentScriptTabId,
+      },
+      (response) => {
+        console.log("Response from service worker, forwarding to sandbox:", response);
+        // forward to sandbox
+        sandboxWindow.postMessage(response, "*");
+      }
+    );
   });
 }
 
