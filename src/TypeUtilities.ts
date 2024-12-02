@@ -12,6 +12,10 @@ export type ApiWrapper<T> = {
     : ApiWrapper<T[K]>;
 };
 
+export function createCallbackRegistry() : Map<string, Function> {
+  return new Map<string, Function>();
+}
+
 function handleAsyncIteration(
   objectId: string | undefined
 ) {
