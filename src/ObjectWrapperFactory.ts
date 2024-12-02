@@ -4,21 +4,6 @@ import {
 } from "./TypeUtilities";
 import { Function } from "./TypeUtilities";
 
-export function createProxyObjectForSandboxContext<T>(
-  callbackRegistry: Map<string, Function>,
-  objectId: string,
-  data: any,
-  iteratorId?: string | undefined,
-): T {
-  return createObjectWrapperWithCallbackRegistry(
-    [],
-    callbackRegistry,
-    iteratorId,
-    objectId,
-    data
-  );
-}
-
 export function createObjectWrapperFactory<T>(
   callbackRegistry: Map<string, Function>,
   referenceState: T
@@ -60,8 +45,4 @@ export function createObjectWrapperFactory<T>(
   };
 
   return new Proxy(function () {}, handler) as T;
-}
-
-export function generateUniqueId(): string {
-  return Math.random().toString(36).substring(2, 11);
 }

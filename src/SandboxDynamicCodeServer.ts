@@ -1,5 +1,5 @@
-import { createObjectWrapperFactory, createProxyObjectForSandboxContext } from "./CreateProxyObjectForSandboxContext";
-import { createCallbackRegistry } from "./TypeUtilities";
+import { createObjectWrapperFactory } from "./ObjectWrapperFactory";
+import { createCallbackRegistry, createObjectWrapperWithCallbackRegistry } from "./TypeUtilities";
 
 const pendingPromises = new Map<string, (proxy: any, raw: MessageEvent<any>, error?: string) => void>();
 
@@ -51,7 +51,7 @@ export function createSandboxDynamicCodeServer(
         return;
       }
 
-      const returnValue =  createProxyObjectForSandboxContext(callbackRegistry, event.data.objectId, objectData, event.data.iteratorId);
+      const returnValue = createObjectWrapperWithCallbackRegistry([], callbackRegistry, event.data.iteratorId, event.data.objectId, objectData);
       resolvePromise(correlationId, returnValue, event.data);
       return;
     }

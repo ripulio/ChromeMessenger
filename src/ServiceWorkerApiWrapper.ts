@@ -1,10 +1,9 @@
-import { generateUniqueId } from "./CreateProxyObjectForSandboxContext";
-import { waitForResponse } from "./CreateSandboxDynamicCodeServer";
-import { createObjectWrapper } from "./TypeUtilities";
+import { waitForResponse } from "./SandboxDynamicCodeServer";
+import { createObjectWrapper, generateUniqueId } from "./TypeUtilities";
 
 export type TransportType = "fromSandbox" | "fromContentScript";
 
-export function createBackgroundApiWrapper<T>(transportType: TransportType): T {
+export function createServiceWorkerApiWrapper<T>(transportType: TransportType): T {
   if (transportType === "fromContentScript") {
     const messageHandler = (
       functionPath: string[],

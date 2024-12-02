@@ -1,29 +1,34 @@
 // mapping of port to tabId
 
-export function createBackgroundApiServer<T extends object>(
-  backgroundApi: T
+export function createServiceWorkerApiServer<T extends object>(
+  serviceWorkerApi: T
 ): void {
   chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-
-    console.log("BackgroundApiServer request", request);
+    console.log(
+      "Service worker message recieved in backgroundApiServer",
+      request
+    );
     if (request.messageType == "sandboxCallback") {
       // send message to sandbox iframe
       const tabId = request.sandboxTabId;
       const callbackReference = request.callbackReference;
-      
-      chrome.tabs.sendMessage(tabId, {
-        callbackReference: callbackReference,
-        sandboxTabId: tabId
-      }, (response) => {
-        console.log("sandboxCallback response", response);
-      });
 
-      return;
+      chrome.tabs.sendMessage(
+        tabId,
+        {
+          callbackReference: callbackReference,
+          sandboxTabId: tabId,
+        },
+        (response) => {
+          console.log("sandboxCallback response", response);
+        }
+      );
+
+      return true;
     }
 
-    // MessageType: "ProxyPropertyAccess" or "ProxyInvocation"
+    // MessageType: "ProxyInvocation"
     if (request.source === "sandbox") {
-
       const destinationTab = request.contentScriptTabId;
       // forward to content script for active page
       chrome.tabs.sendMessage(destinationTab, request, (response) => {
@@ -31,13 +36,13 @@ export function createBackgroundApiServer<T extends object>(
         console.log("For request", request);
         sendResponse(response);
       });
-      // return here or wait for the response to propogate? 
+      // return here or wait for the response to propogate?
       return true;
     }
 
     const messagePath: string[] = request.messageType;
 
-    let target: any = backgroundApi;
+    let target: any = serviceWorkerApi;
 
     for (let i = 0; i < messagePath.length - 1; i++) {
       if (target[messagePath[i]] === undefined) {
@@ -45,7 +50,7 @@ export function createBackgroundApiServer<T extends object>(
       }
       target = target[messagePath[i]];
     }
-    
+
     const functionName = messagePath[messagePath.length - 1];
     const functionToCall = target[functionName];
 
@@ -64,18 +69,17 @@ export function createBackgroundApiServer<T extends object>(
         (functionToCall as Function).apply(target, [...request.payload, sender])
       )
         .then((result) => {
-          sendResponse({...baseMessage, data: result});
+          sendResponse({ ...baseMessage, data: result });
         })
         .catch((error) => {
           console.error(`Error in ${messagePath.join(".")}:`, error);
-          sendResponse({...baseMessage, error: error.message });
+          sendResponse({ ...baseMessage, error: error.message });
         });
-    } else {
-      // if its not a function, then it should be a value
-      sendResponse({...baseMessage, data: functionToCall});
+      return true;
     }
 
-    // Return true to indicate that we will send a response asynchronously
-    return true;
+    // if its not a function, then it should be a value
+    sendResponse({ ...baseMessage, data: functionToCall });
+    return false;
   });
 }

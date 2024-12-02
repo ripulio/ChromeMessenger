@@ -1,5 +1,4 @@
-import { generateUniqueId } from "./CreateProxyObjectForSandboxContext";
-import { waitForResponse } from "./CreateSandboxDynamicCodeServer";
+import { waitForResponse } from "./SandboxDynamicCodeServer";
 
 type Primitive = string | number | boolean | null | undefined;
 export type Function = (...args: any[]) => unknown;
@@ -341,6 +340,10 @@ function transformArg(arg: any, callbackRegistry: Map<string, Function>): any {
     default:
       return arg;
   }
+}
+
+export function generateUniqueId(): string {
+  return Math.random().toString(36).substring(2, 11);
 }
 
 export {};
