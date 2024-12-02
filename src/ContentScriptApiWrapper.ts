@@ -1,30 +1,32 @@
-import { ApiWrapper, createObjectWrapper } from "./TypeUtilities";
+import { createObjectWrapper, PromisifyNonPromiseMethods } from "./TypeUtilities";
 
-type TabTargetApiWrapper<T> = {
+export type TabTargetApiWrapper<T> = {
   forTab(tabId: number): T;
 };
 
-export function createContentScriptApiWrapper<T>(): TabTargetApiWrapper<T> {
+export function createContentScriptApiWrapper<T>(): TabTargetApiWrapper<PromisifyNonPromiseMethods<T>> {
   const tabTargetApiWrapper = {
     forTab(tabId: number) {
-      const messageHandler = (functionPath: string[], ...args: any[]): any => {
+      const messageHandler = (functionPath: string[], ...args: any[]): Promise<any> => {
         const message = {
           messageType: functionPath,
+          functionPath: functionPath,
           payload: args,
         };
 
-        console.log(`Sending message: ${JSON.stringify(message)}`);
-        chrome.tabs.sendMessage(tabId, message, (response) => {
-          if (chrome.runtime.lastError) {
-            response = chrome.runtime.lastError;
-          } else {
-            response = response;
-          }
+        return new Promise<any>((resolve, reject) => {
+          console.log(`Sending message: ${JSON.stringify(message)}`);
+          chrome.tabs.sendMessage(tabId, message, {}, (response) => {
+            console.log(`Received response: ${JSON.stringify(response)}`);
+            if (chrome.runtime.lastError) {
+              reject(chrome.runtime.lastError);
+            } else {
+              resolve(response);
+            }
+          });
         });
-
-        return;
       };
-      return createObjectWrapper<T>(messageHandler, []) as T;
+      return createObjectWrapper<T>(messageHandler, []);
     },
   };
   return tabTargetApiWrapper;

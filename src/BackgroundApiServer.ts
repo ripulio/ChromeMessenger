@@ -64,7 +64,7 @@ export function createBackgroundApiServer<T extends object>(
         (functionToCall as Function).apply(target, [...request.payload, sender])
       )
         .then((result) => {
-          sendResponse({...baseMessage, ...result});
+          sendResponse({...baseMessage, data: result});
         })
         .catch((error) => {
           console.error(`Error in ${messagePath.join(".")}:`, error);
@@ -72,7 +72,7 @@ export function createBackgroundApiServer<T extends object>(
         });
     } else {
       // if its not a function, then it should be a value
-      sendResponse({...baseMessage, ...functionToCall});
+      sendResponse({...baseMessage, data: functionToCall});
     }
 
     // Return true to indicate that we will send a response asynchronously

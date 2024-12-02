@@ -3,8 +3,8 @@ import { Function } from "./TypeUtilities";
 
 const pendingPromises = new Map<string, (proxy: any, raw: MessageEvent<any>, error?: string) => void>();
 
-export function waitForResponse<T>(correlationId: string): Promise<{proxy: T[keyof T], raw: MessageEvent<any>, error?: string}> {
-  const promise = new Promise<{proxy: T[keyof T], raw: MessageEvent<any>, error?: string}>((resolve, reject) => {
+export function waitForResponse<T>(correlationId: string): Promise<{proxy: T[keyof T], raw: any, error?: string}> {
+  const promise = new Promise<{proxy: T[keyof T], raw: any, error?: string}>((resolve, reject) => {
     pendingPromises.set(correlationId, (proxy, raw, error) => error ? reject(error) : resolve({proxy, raw}));
     // todo handle timeout
   });
@@ -57,7 +57,7 @@ export function createSandboxDynamicCodeServer(
         const objectId = event.data.objectId;
         const iteratorId = event.data.iteratorId;
 
-        if (objectData === undefined){
+        if (objectData === undefined || objectData === null){
           pendingPromises.get(correlationId)?.(undefined, event.data);
           pendingPromises.delete(correlationId);
           return;

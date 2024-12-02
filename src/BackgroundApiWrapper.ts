@@ -18,7 +18,7 @@ export function createBackgroundApiWrapper<T>(transportType: TransportType): T {
 
         console.log(`Sending message: ${JSON.stringify(message)}`);
         chrome.runtime.sendMessage(message, (response) => {
-          resolve(response);
+          response.error ? reject(response.error) : resolve(response.data);
         });
       });
     };
@@ -39,7 +39,7 @@ export function createBackgroundApiWrapper<T>(transportType: TransportType): T {
       window.parent.postMessage(message, "*");
 
       return waitForResponse(correlationId).then((response) => {
-        resolve(response.raw);
+        resolve(response.raw.deserializeData ? JSON.parse(response.raw.data) : response.raw.data);
       });
     });
 

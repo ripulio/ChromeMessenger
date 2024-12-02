@@ -3,56 +3,49 @@ export function createContentScriptApiServer<T extends object>(
   globalContext: typeof globalThis
 ): void {
   chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+
+    const createAndSendResponse = (result: any) => {
+      const response = createResponse(result, request.correlationId);
+      sendResponse(response);
+    }
+
     if (request.source === "sandbox") {
       console.log("Recieved sandbox message", request);
       switch (request.messageType) {
-        case "ProxyPropertyAccess":
-          executePropertyAccess(
-            request.functionPath,
-            globalContext,
-            request.sandboxTabId,
-            request.correlationId,
-            sendResponse
-          );
-          break;
-
         case "ProxyInvocation":
-          const target =
-            request.objectId === undefined
-              ? globalContext
-              : objectStore.get(request.objectId);
+
+          const target = getTarget(request, globalContext);
+
           if (isComparison(request.functionPath)) {
             const result = executeComparison(
               request.payload[0],
               target,
               transformObjectReferenceArg(request.payload[1], objectStore)
             );
-            const response = createResponse(result, request.correlationId);
-            sendResponse(response);
+            createAndSendResponse(result);
             return false;
           }
+
           if (isAssignment(request.payload)) {
             const arg = request.payload[0].value;
             const transformedArg = transformObjectReferenceArg(
               arg,
               objectStore
             );
-            executeAssignment(transformedArg, target, request.functionPath);
-            const response = createResponse(true, request.correlationId);
-            sendResponse(response);
+            const result = executeAssignment(transformedArg, target, request.functionPath);
+            createAndSendResponse(result);
             return false;
           }
 
           executeFunctionCall(
             request.functionPath,
-            injectCallbackPropogation(
-              injectStoredObjectReferences(request.payload, objectStore),
+            injectCallbackPropogationIntoPayload(
+              injectStoredObjectReferencesIntoPayload(request.payload, objectStore),
               globalContext,
               request.sandboxTabId
             ),
             target,
-            request.correlationId,
-            sendResponse
+            createAndSendResponse
           );
           break;
 
@@ -65,13 +58,12 @@ export function createContentScriptApiServer<T extends object>(
       return true;
     }
 
-    // Handle non-sandbox messages
+    // Handle non-proxy messages
     executeFunctionCall(
       request.functionPath,
       request.payload,
       contentScriptApi,
-      request.correlationId,
-      sendResponse
+      (result) => sendResponse(result)
     );
     return true;
   });
@@ -79,6 +71,12 @@ export function createContentScriptApiServer<T extends object>(
 
 const objectStore = new Map<string, any>();
 let nextObjectId = 1;
+
+function getTarget(request: any, globalContext: typeof globalThis){ 
+  return request.objectId === undefined
+  ? globalContext
+  : objectStore.get(request.objectId); 
+}
 
 function executeComparison(
   comparisonIdentifier: string,
@@ -109,45 +107,19 @@ function executeComparison(
   }
 }
 
-function executePropertyAccess(
-  path: string[],
-  globalContext: typeof globalThis,
-  sandboxTabId: number,
-  correlationId: string,
-  sendResponse: (response: any) => void
-) {
-  function traversePath(path: string[]) {
-    return path.reduce((current, key) => {
-      if (current === undefined) return undefined;
-      // Check if the key exists in globalObject
-      if (key in globalContext) {
-        return (globalContext as any)[key];
-      }
-      // If not, continue traversing the current object
-      return (current as any)[key];
-    }, globalContext);
-  }
-
-  const result = traversePath(path);
-
-  const response = createResponse(result, correlationId);
-  sendResponse(response);
-}
-
-function injectStoredObjectReferences(
+function injectStoredObjectReferencesIntoPayload(
   payload: any,
   objectStore: Map<string, any>
-) {
+) : any {
   for (const key in payload) {
     const arg = payload[key];
     if (typeof arg === "object") {
       // replace objectReference with actual object
       if (arg !== null && arg.type === "objectReference") {
         payload[key] = objectStore.get(arg.objectId);
-      }
-      else {
+      } else {
         // recursively inject object references
-        payload[key] = injectStoredObjectReferences(arg, objectStore);
+        payload[key] = injectStoredObjectReferencesIntoPayload(arg, objectStore);
       }
     }
   }
@@ -166,7 +138,7 @@ function transformObjectReferenceArg(arg: any, objectStore: Map<string, any>) {
   return arg;
 }
 
-function injectCallbackPropogation(
+function injectCallbackPropogationIntoPayload(
   payload: any,
   globalContext: typeof globalThis,
   sandboxTabId: number
@@ -219,14 +191,14 @@ function isComparison(path: string[]): boolean {
   return path.length > 0 && path[0] === "__compare";
 }
 
-function executeAssignment(arg: any, target: any, path: string[]) {
+function executeAssignment(arg: any, target: any, path: string[]): boolean {
   let current = target;
 
   for (let i = 0; i < path.length - 1; i++) {
     current = current[path[i]];
   }
 
-  current[path[path.length - 1]] = arg;
+  return current[path[path.length - 1]] = arg;
 }
 
 function transformEventsInPayload(payload: any[]): any[] {
@@ -268,7 +240,7 @@ function argumentToEvent(argument: any): Event | null {
       console.warn(`Failed to get event constructor for ${argument.eventType}`);
       return null;
     }
-    const hydratedEventInit = injectStoredObjectReferences(
+    const hydratedEventInit = injectStoredObjectReferencesIntoPayload(
       eventInit,
       objectStore
     );
@@ -300,14 +272,13 @@ function executeFunctionCall(
   messagePath: string[],
   payload: any,
   target: any,
-  correlationId: string,
-  sendResponse: (response: any) => void
+  createAndSendResponse: (response: any) => void
 ): boolean {
   console.log("Recieved function call", messagePath, payload, target);
 
   const returnError = (message: string) => {
     console.error(message);
-    sendResponse(createResponse({ error: message }, correlationId));
+    createAndSendResponse({ error: message });
     return false;
   };
 
@@ -330,7 +301,7 @@ function executeFunctionCall(
       // potential index call - no args only a path:
       let result = target;
       for (let i = 0; i < messagePath.length; i++) {
-        if (result === undefined){
+        if (result === undefined) {
           const message = `Path ${messagePath
             .slice(0, i + 1)
             .join(".")} access on undefined`;
@@ -339,7 +310,7 @@ function executeFunctionCall(
         result = result[messagePath[i]];
       }
 
-      sendResponse(createResponse(result, correlationId));
+      createAndSendResponse(result);
       return false;
     }
 
@@ -349,8 +320,7 @@ function executeFunctionCall(
   }
 
   if (typeof functionToCall !== "function" && payload.length === 0) {
-    const response = createResponse(functionToCall, correlationId);
-    sendResponse(response);
+    createAndSendResponse(functionToCall);
     return false;
   }
 
@@ -359,23 +329,16 @@ function executeFunctionCall(
 
   console.log("Executing function", functionToCall, eventedPayload);
   const result = functionToCall.apply(currentTarget, eventedPayload);
-  if (result instanceof Promise) {
-    result
-      .then((resolvedResult) => {
-        console.log("Result for function", functionToCall, resolvedResult);
-        const response = createResponse(resolvedResult, correlationId);
-        sendResponse(response);
-      })
-      .catch((error) => {
-        console.error(`Error in ${messagePath.join(".")}:`, error);
-        sendResponse(createResponse({ error: error.message }, correlationId));
-      });
-    return true; // Indicate that we will send a response asynchronously
-  } else {
-    const response = createResponse(result, correlationId);
-    sendResponse(response);
-    return false; // Indicate that we've already sent the response
-  }
+  Promise.resolve(result)
+    .then((resolvedResult: any) => {
+      console.log("Result for function", functionToCall, resolvedResult);
+      createAndSendResponse(resolvedResult);
+    })
+    .catch((error: any) => {
+      console.error(`Error in ${messagePath.join(".")}:`, error);
+      createAndSendResponse({ error: error.message });
+    });
+  return true; // Indicate that we will send a response asynchronously
 }
 
 // Define the types
@@ -448,23 +411,23 @@ function createResponse(
   return resultMessage;
 }
 
-  // TODO: This is a hack to prevent circular references and functions from being serialized.
-  // When we need the objects in the iframe, revisit this.
+// TODO: This is a hack to prevent circular references and functions from being serialized.
+// When we need the objects in the iframe, revisit this.
 function makeObjectCloneable(data: any): any {
   if (data === undefined || data === null || typeof data === "function") {
     return undefined;
   }
 
-  if (Array.isArray(data)){
-    return {length: data.length};
+  if (Array.isArray(data)) {
+    return { length: data.length };
   }
 
-  if (typeof data === "object"){
+  if (typeof data === "object") {
     const obj: any = {};
 
     for (let key in data) {
       obj[key] =
-        (typeof data[key] === "object") || typeof data[key] === "function"
+        typeof data[key] === "object" || typeof data[key] === "function"
           ? undefined
           : data[key];
     }

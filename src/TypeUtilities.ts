@@ -247,10 +247,18 @@ export function createFunctionWrapperWithCallbackRegistry<T>(
   return new Proxy(function () {}, handler) as Function;
 }
 
+export type PromisifyNonPromiseMethods<T> = {
+  [K in keyof T]: T[K] extends (...args: infer A) => infer R
+    ? R extends Promise<any>
+      ? T[K]
+      : (...args: A) => Promise<R>
+    : T[K];
+};
+
 export function createObjectWrapper<T>(
-  invocationHandler: (functionPath: string[], ...args: any[]) => any,
+  invocationHandler: (functionPath: string[], ...args: any[]) => Promise<any>,
   path: string[]
-): T {
+): PromisifyNonPromiseMethods<T> {
   const handler = {
     get(target: any, prop: string) {
       const newPath = [...path, prop];
@@ -262,7 +270,7 @@ export function createObjectWrapper<T>(
     },
   };
 
-  return new Proxy(function () {}, handler) as T;
+  return new Proxy(function () {}, handler) as PromisifyNonPromiseMethods<T>;
 }
 
 function wrapCallback(
