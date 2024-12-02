@@ -1,4 +1,4 @@
-import { createProxyObjectForSandboxContext } from "./CreateProxyObjectForSandboxContext";
+import { generateUniqueId } from "./CreateProxyObjectForSandboxContext";
 import { waitForResponse } from "./CreateSandboxDynamicCodeServer";
 
 type Primitive = string | number | boolean | null | undefined;
@@ -12,46 +12,16 @@ export type ApiWrapper<T> = {
     : ApiWrapper<T[K]>;
 };
 
-export function createCallbackRegistry() : Map<string, Function> {
+export type PromisifyNonPromiseMethods<T> = {
+  [K in keyof T]: T[K] extends (...args: infer A) => infer R
+    ? R extends Promise<any>
+      ? T[K]
+      : (...args: A) => Promise<R>
+    : T[K];
+};
+
+export function createCallbackRegistry(): Map<string, Function> {
   return new Map<string, Function>();
-}
-
-function handleAsyncIteration(
-  objectId: string | undefined
-) {
-  return async function* () {
-    const getNext = async () => {
-      const correlationId = generateUniqueId();
-      const message = {
-        correlationId: correlationId,
-        messageType: "ProxyInvocation",
-        functionPath: ["next"],
-        objectId: objectId,
-        payload: [],
-        source: "sandbox",
-        destination: "content",
-      };
-
-      window.parent.postMessage(message, "*");
-
-      const { proxy, raw } = await waitForResponse<any>(correlationId);
-
-      const done = raw.data.deserializeData ? JSON.parse(raw.data).done : raw.data.done; 
-      return {
-        value: proxy,
-        done: done
-      };
-    };
-    let done = false;
-    while (!done) {
-      const { value, done: nowDone } = await getNext();
-      done = nowDone;
-      if (done){
-        return;
-      }
-      yield await value.value();
-    }
-  };
 }
 
 export function createObjectWrapperWithCallbackRegistry<T>(
@@ -136,6 +106,47 @@ export function createObjectWrapperWithCallbackRegistry<T>(
   ) as unknown as T;
 }
 
+export function createFunctionWrapperWithCallbackRegistry<T>(
+  functionPath: string[],
+  node: keyof T,
+  callbackRegistry: Map<string, Function>
+): Function {
+  const handler = {
+    apply(target: any, thisArg: any, args: any[]) {
+      const wrappedArgs = args.map((arg: any) =>
+        typeof arg === "function"
+          ? registerCallback(arg, callbackRegistry)
+          : arg
+      );
+      return functionInvocationHandler(
+        functionPath,
+        node,
+        undefined,
+        ...wrappedArgs
+      );
+    },
+  };
+  return new Proxy(function () {}, handler) as Function;
+}
+
+export function createObjectWrapper<T>(
+  invocationHandler: (functionPath: string[], ...args: any[]) => Promise<any>,
+  path: string[]
+): PromisifyNonPromiseMethods<T> {
+  const handler = {
+    get(target: any, prop: string) {
+      const newPath = [...path, prop];
+      return createObjectWrapper(invocationHandler, newPath);
+    },
+    apply(target: any, thisArg: any, args: any[]) {
+      // Wrap function arguments
+      return invocationHandler(path, ...args);
+    },
+  };
+
+  return new Proxy(function () {}, handler) as PromisifyNonPromiseMethods<T>;
+}
+
 function createFunctionProxy(
   prop: any,
   path: string[],
@@ -186,6 +197,44 @@ function isProxy(obj: any): string | undefined {
   return obj[IS_PROXY];
 }
 
+function handleAsyncIteration(objectId: string | undefined) {
+  return async function* () {
+    const getNext = async () => {
+      const correlationId = generateUniqueId();
+      const message = {
+        correlationId: correlationId,
+        messageType: "ProxyInvocation",
+        functionPath: ["next"],
+        objectId: objectId,
+        payload: [],
+        source: "sandbox",
+        destination: "content",
+      };
+
+      window.parent.postMessage(message, "*");
+
+      const { proxy, raw } = await waitForResponse<any>(correlationId);
+
+      const done = raw.data.deserializeData
+        ? JSON.parse(raw.data).done
+        : raw.data.done;
+      return {
+        value: proxy,
+        done: done,
+      };
+    };
+    let done = false;
+    while (!done) {
+      const { value, done: nowDone } = await getNext();
+      done = nowDone;
+      if (done) {
+        return;
+      }
+      yield await value.value();
+    }
+  };
+}
+
 async function functionInvocationHandler<T>(
   functionPath: string[],
   prop: any,
@@ -230,54 +279,7 @@ async function functionInvocationHandler<T>(
   return response.proxy;
 }
 
-export function createFunctionWrapperWithCallbackRegistry<T>(
-  functionPath: string[],
-  node: keyof T,
-  callbackRegistry: Map<string, Function>
-): Function {
-  const handler = {
-    apply(target: any, thisArg: any, args: any[]) {
-      const wrappedArgs = args.map((arg: any) =>
-        typeof arg === "function" ? wrapCallback(arg, callbackRegistry) : arg
-      );
-      return functionInvocationHandler(
-        functionPath,
-        node,
-        undefined,
-        ...wrappedArgs
-      );
-    },
-  };
-  return new Proxy(function () {}, handler) as Function;
-}
-
-export type PromisifyNonPromiseMethods<T> = {
-  [K in keyof T]: T[K] extends (...args: infer A) => infer R
-    ? R extends Promise<any>
-      ? T[K]
-      : (...args: A) => Promise<R>
-    : T[K];
-};
-
-export function createObjectWrapper<T>(
-  invocationHandler: (functionPath: string[], ...args: any[]) => Promise<any>,
-  path: string[]
-): PromisifyNonPromiseMethods<T> {
-  const handler = {
-    get(target: any, prop: string) {
-      const newPath = [...path, prop];
-      return createObjectWrapper(invocationHandler, newPath);
-    },
-    apply(target: any, thisArg: any, args: any[]) {
-      // Wrap function arguments
-      return invocationHandler(path, ...args);
-    },
-  };
-
-  return new Proxy(function () {}, handler) as PromisifyNonPromiseMethods<T>;
-}
-
-function wrapCallback(
+function registerCallback(
   callback: Function,
   callbackRegistry: Map<string, Function>
 ): string {
@@ -289,30 +291,10 @@ function wrapCallback(
   return "__callback__|" + callbackId;
 }
 
-function generateUniqueId(): string {
-  return Math.random().toString(36).slice(2, 11);
-}
-
-type PromisifyFunction<T> = T extends (...args: infer A) => infer R
-  ? R extends Promise<any>
-    ? T
-    : (...args: A) => Promise<R>
-  : never;
-
-type PromisifyProperty<T> = T extends Function
-  ? PromisifyFunction<T>
-  : T extends object
-  ? PromiseWrapNamespace<T>
-  : Promise<T>;
-
-type PromiseWrapNamespace<T> = {
-  [K in keyof T as `ripul_${string & K}`]: PromisifyProperty<T[K]>;
-};
-
 function transformArg(arg: any, callbackRegistry: Map<string, Function>): any {
   switch (typeof arg) {
     case "function":
-      return wrapCallback(arg, callbackRegistry);
+      return registerCallback(arg, callbackRegistry);
     case "object":
       if (!arg) return arg;
       const objectId = isProxy(arg);
