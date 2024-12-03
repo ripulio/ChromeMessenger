@@ -2,10 +2,11 @@
 
 export function createServiceWorkerApiServer<T extends object>(
   serviceWorkerApi: T
-): void {
-  chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+): { stop: () => void } {
+  // Store the listener function in a variable
+  const messageListener = (request: any, sender: chrome.runtime.MessageSender, sendResponse: (response?: any) => void) => {
     console.log(
-      "Service worker message recieved in backgroundApiServer",
+      "Service worker message received in backgroundApiServer",
       request
     );
     if (request.messageType == "sandboxCallback") {
@@ -81,5 +82,11 @@ export function createServiceWorkerApiServer<T extends object>(
     // if its not a function, then it should be a value
     sendResponse({ ...baseMessage, data: functionToCall });
     return false;
-  });
+  };
+
+  // Register the listener
+  chrome.runtime.onMessage.addListener(messageListener);
+
+  // To deregister the listener, use removeListener
+  return { stop: () => chrome.runtime.onMessage.removeListener(messageListener) };
 }
