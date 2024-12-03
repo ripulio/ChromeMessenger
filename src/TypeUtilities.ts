@@ -183,6 +183,11 @@ function createFunctionProxy(
 
       return functionInvocationHandler(path, prop, objectId, ...wrappedArgs);
     },
+    get(target: any, prop: any) {
+      if (propIsProxy(prop)) {
+        return true;
+      }
+    }
   });
 }
 
