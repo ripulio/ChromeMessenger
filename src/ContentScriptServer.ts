@@ -328,17 +328,24 @@ function executeFunctionCall(
   const eventedPayload = transformEventsInPayload(payload);
 
   console.log("Executing function", functionToCall, eventedPayload);
-  const result = functionToCall.apply(currentTarget, eventedPayload);
-  Promise.resolve(result)
-    .then((resolvedResult: any) => {
-      console.log("Result for function", functionToCall, resolvedResult);
-      createAndSendResponse(resolvedResult);
-    })
-    .catch((error: any) => {
-      console.error(`Error in ${messagePath.join(".")}:`, error);
-      createAndSendResponse({ error: error.message });
-    });
-  return true; // Indicate that we will send a response asynchronously
+  try{
+    const result = functionToCall.apply(currentTarget, eventedPayload);
+    Promise.resolve(result)
+      .then((resolvedResult: any) => {
+        console.log("Result for function", functionToCall, resolvedResult);
+        createAndSendResponse(resolvedResult);
+      })
+      .catch((error: any) => {
+        console.error(`Error in ${messagePath.join(".")}:`, error);
+        createAndSendResponse({ error: error.message });
+      });
+    return true; 
+  } catch (error) {
+    console.error(`Error in ${messagePath.join(".")}:`, error);
+    createAndSendResponse({ error: error });
+    return false;
+  }
+  // Indicate that we will send a response asynchronously
 }
 
 // Define the types
