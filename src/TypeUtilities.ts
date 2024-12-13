@@ -198,7 +198,7 @@ function propIsProxy(prop: string) {
 }
 
 function isProxy(obj: any): string | undefined {
-  return obj[IS_PROXY];
+  return obj && obj[IS_PROXY];
 }
 
 function handleAsyncIteration(objectId: string | undefined) {
