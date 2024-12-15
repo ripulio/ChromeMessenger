@@ -82,6 +82,14 @@ export function createSandboxDynamicCodeServer(
     }
 
     if (event.data.correlationId) {
+      if (event.data.error) {
+        resolvePromise(
+          event.data.correlationId,
+          null,
+          event.data,
+          event.data.error
+        );
+      }
       resolvePromise(event.data.correlationId, null, event.data);
       return;
     }
