@@ -12,7 +12,6 @@ export function createBackgroundApiWrapper<T>(): ApiWrapper<T> {
       chrome.runtime.sendMessage(message, (response) => {
         resolve(response);
       });
-      setTimeout(() => resolve("Mock response"), 100);
     });
   };
 
