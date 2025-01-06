@@ -16,9 +16,9 @@ export function createObjectWrapperFactory<T>(
         switch (propType) {
           case "function":
             return createFunctionWrapperWithCallbackRegistry(
-              [],
-              prop as keyof T,
-              callbackRegistry
+              prop,
+              callbackRegistry,
+              undefined
             );
           case "object":
             return createObjectWrapperWithCallbackRegistry(

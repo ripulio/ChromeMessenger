@@ -1,54 +1,149 @@
+import {
+  getFunctionReference,
+  getObjectReference,
+  storeFunctionReference,
+  storeObjectReference,
+  storeStaticFunctionReference,
+  storeStaticObjectReference,
+} from "./ContentScriptReferenceStore";
+import {
+  PropertyAccessMessage,
+  PropertyAssignmentMessage,
+  ProxyInvocationMessage,
+} from "./TypeUtilities";
+
 export function createContentScriptApiServer<T extends object>(
   contentScriptApi: T,
   globalContext: typeof globalThis
 ): void {
   chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-
-    const createAndSendResponse = (result: any) => {
-      const response = createResponse(result, request.correlationId);
+    const createAndSendStaticFunctionResponse = (result: Function) => {
+      const functionId = storeStaticFunctionReference(result);
+      const response = createFunctionResponse(
+        request.correlationId,
+        functionId
+      );
       sendResponse(response);
-    }
+    };
+    const createAndSendFunctionResponse = (
+      key: string,
+      contextObjectId: string
+    ) => {
+      const functionId = storeFunctionReference(contextObjectId, key);
+      const response = createFunctionResponse(
+        request.correlationId,
+        functionId
+      );
+      sendResponse(response);
+    };
+
+    const createAndSendStaticResponse = (result: any) => {
+      const objectId = storeStaticObjectReference(result);
+      const response = createResponse(objectId, result, request.correlationId);
+      sendResponse(response);
+    };
+
+    const createAndSendResponse = (
+      result: any,
+      key: string,
+      contextObjectId: string
+    ) => {
+      const objectId = storeObjectReference(contextObjectId, key);
+      const response = createResponse(objectId, result, request.correlationId);
+      sendResponse(response);
+    };
 
     if (request.source === "sandbox") {
       console.log("Recieved sandbox message", request);
+
       switch (request.messageType) {
         case "ProxyInvocation":
+          const message = request as ProxyInvocationMessage;
+          const target =
+            message.objectId !== undefined
+              ? getObjectReference(globalContext, message.objectId)
+              : globalContext;
 
-          const target = getTarget(request, globalContext);
-
-          if (isComparison(request.functionPath)) {
+          /*
+          if (isComparison(message.functionName)) {
             const result = executeComparison(
-              request.payload[0],
+              message.payload[0],
               target,
-              transformObjectReferenceArg(request.payload[1], objectStore)
+              transformObjectReferenceArg(globalContext, message.payload[1])
             );
-            createAndSendResponse(result);
+            createAndSendStaticResponse(result);
             return false;
           }
+          */
 
-          if (isAssignment(request.payload)) {
-            const arg = request.payload[0].value;
-            const transformedArg = transformObjectReferenceArg(
-              arg,
-              objectStore
+          if (!request.objectId) {
+            request.objectId = storeFunctionReference(
+              "global",
+              message.functionName
             );
-            const result = executeAssignment(transformedArg, target, request.functionPath);
-            createAndSendResponse(result);
-            return false;
           }
 
           executeFunctionCall(
-            request.functionPath,
+            request.objectId,
             injectCallbackPropogationIntoPayload(
-              injectStoredObjectReferencesIntoPayload(request.payload, objectStore),
+              injectStoredObjectReferencesIntoPayload(
+                globalContext,
+                request.payload
+              ),
               globalContext,
               request.sandboxTabId
             ),
-            target,
-            createAndSendResponse
+            (result: any) =>
+              typeof result === "function"
+                ? createAndSendStaticFunctionResponse(result)
+                : createAndSendStaticResponse(result),
+            globalContext
           );
-          break;
 
+          break;
+        case "propertyAccess":
+          const propertyAccessMessage = request as PropertyAccessMessage;
+          const propertyAccessTarget = getPropertyAccessTarget(
+            globalContext,
+            propertyAccessMessage
+          );
+          const contextObjectId = getContextObjectId(propertyAccessMessage);
+          executePropertyAccess(
+            propertyAccessMessage.propertyName,
+            propertyAccessTarget,
+            (result: any) =>
+              typeof result === "function"
+                ? createAndSendFunctionResponse(
+                    propertyAccessMessage.propertyName,
+                    contextObjectId
+                  )
+                : createAndSendResponse(
+                    result,
+                    propertyAccessMessage.propertyName,
+                    contextObjectId
+                  )
+          );
+          return false;
+        case "propertyAssignment":
+          const propertyAssignmentMessage =
+            request as PropertyAssignmentMessage;
+          const propertyAssignmentTarget = getPropertyAccessTarget(
+            globalContext,
+            propertyAssignmentMessage
+          );
+
+          const transformedValue = transformObjectReferenceArg(
+            globalContext,
+            propertyAssignmentMessage.value
+          );
+
+          const result = executeAssignment(
+            transformedValue,
+            propertyAssignmentTarget,
+            propertyAssignmentMessage.propertyName
+          );
+          createAndSendStaticResponse(result);
+          return false;
         default:
           console.warn(
             `Unhandled sandbox message type: ${request.messageType}`
@@ -60,22 +155,35 @@ export function createContentScriptApiServer<T extends object>(
 
     // Handle non-proxy messages
     executeFunctionCall(
-      request.functionPath,
+      request.objectId,
       request.payload,
-      contentScriptApi,
-      (result) => sendResponse(result)
+      (result) => sendResponse(result),
+      globalContext
     );
     return true;
   });
 }
 
-const objectStore = new Map<string, any>();
-let nextObjectId = 1;
+function getPropertyAccessTarget(
+  globalContext: any,
+  propertyAccessMessage: PropertyAccessMessage | PropertyAssignmentMessage
+) {
+  if (propertyAccessMessage.objectId !== undefined) {
+    return getObjectReference(globalContext, propertyAccessMessage.objectId);
+  }
 
-function getTarget(request: any, globalContext: typeof globalThis){ 
-  return request.objectId === undefined
-  ? globalContext
-  : objectStore.get(request.objectId); 
+  storeObjectReference("global", propertyAccessMessage.objectName!);
+  return (globalContext as any)[propertyAccessMessage.objectName!];
+}
+
+function getContextObjectId(propertyAccessMessage: PropertyAccessMessage) {
+  if (propertyAccessMessage.objectId !== undefined) {
+    return propertyAccessMessage.objectId;
+  }
+  if (propertyAccessMessage.objectName !== undefined) {
+    return storeObjectReference("global", propertyAccessMessage.objectName);
+  }
+  return "global";
 }
 
 function executeComparison(
@@ -108,18 +216,21 @@ function executeComparison(
 }
 
 function injectStoredObjectReferencesIntoPayload(
-  payload: any,
-  objectStore: Map<string, any>
-) : any {
+  globalContext: any,
+  payload: any
+): any {
   for (const key in payload) {
     const arg = payload[key];
     if (typeof arg === "object") {
       // replace objectReference with actual object
       if (arg !== null && arg.type === "objectReference") {
-        payload[key] = objectStore.get(arg.objectId);
+        payload[key] = getObjectReference(globalContext, arg.objectId);
       } else {
         // recursively inject object references
-        payload[key] = injectStoredObjectReferencesIntoPayload(arg, objectStore);
+        payload[key] = injectStoredObjectReferencesIntoPayload(
+          globalContext,
+          arg
+        );
       }
     }
   }
@@ -127,13 +238,13 @@ function injectStoredObjectReferencesIntoPayload(
   return payload;
 }
 
-function transformObjectReferenceArg(arg: any, objectStore: Map<string, any>) {
+function transformObjectReferenceArg(globalContext: any, arg: any) {
   if (
     typeof arg === "object" &&
     arg !== null &&
     arg.type === "objectReference"
   ) {
-    return objectStore.get(arg.objectId);
+    return getObjectReference(globalContext, arg.objectId);
   }
   return arg;
 }
@@ -155,10 +266,24 @@ function injectCallbackPropogationIntoPayload(
           sandboxTabId: sandboxTabId,
           messageType: "sandboxCallback",
           args: args.map((arg) => {
-            try {
-              return stringifyEvent(arg);
+            if (typeof arg === "function") {
+              const storedArg = storeStaticFunctionReference(arg);
+              return { type: "functionReference", functionId: storedArg };
+            }
+            const storedArg = storeStaticObjectReference(arg);
+            try{
+              const stringifiedArg = stringifyEvent(arg);
+              return {
+                type: "objectReference",
+                objectId: storedArg,
+                value: stringifiedArg
+              };
             } catch (error) {
-              return `[Unserializable: ${typeof arg}]`;
+              return {
+                type: "objectReference",
+                objectId: storedArg,
+                value: undefined,
+              };
             }
           }),
         });
@@ -183,27 +308,13 @@ function stringifyEvent(e: any) {
   );
 }
 
-function isAssignment(payload: any): boolean {
-  return payload.length > 0 && payload[0].type === "assignment";
+function executeAssignment(value: any, target: any, prop: string): any {
+  return (target[prop] = value);
 }
 
-function isComparison(path: string[]): boolean {
-  return path.length > 0 && path[0] === "__compare";
-}
-
-function executeAssignment(arg: any, target: any, path: string[]): boolean {
-  let current = target;
-
-  for (let i = 0; i < path.length - 1; i++) {
-    current = current[path[i]];
-  }
-
-  return current[path[path.length - 1]] = arg;
-}
-
-function transformEventsInPayload(payload: any[]): any[] {
+function transformEventsInPayload(globalContext: any, payload: any[]): any[] {
   return payload.map((arg) => {
-    return argumentToEvent(arg) ?? arg;
+    return argumentToEvent(globalContext, arg) ?? arg;
   });
 }
 
@@ -228,7 +339,7 @@ function getEventConstructorByName(name: string): EventConstructor | null {
   }
 }
 
-function argumentToEvent(argument: any): Event | null {
+function argumentToEvent(globalContext: any, argument: any): Event | null {
   if (!argumentIsEvent(argument)) {
     return null;
   }
@@ -241,8 +352,8 @@ function argumentToEvent(argument: any): Event | null {
       return null;
     }
     const hydratedEventInit = injectStoredObjectReferencesIntoPayload(
-      eventInit,
-      objectStore
+      globalContext,
+      eventInit
     );
     return createTypedEvent(constructor, hydratedEventInit, type);
   } catch (error) {
@@ -269,12 +380,13 @@ function createTypedEvent(
 }
 
 function executeFunctionCall(
-  messagePath: string[],
+  functionObjectId: string,
   payload: any,
-  target: any,
-  createAndSendResponse: (response: any) => void
+  createAndSendResponse: (response: any) => void,
+  globalContext: any
 ): boolean {
-  console.log("Recieved function call", messagePath, payload, target);
+  const functionToCall = getFunctionReference(globalContext, functionObjectId);
+  console.log("Recieved function call", payload);
 
   const returnError = (message: string) => {
     console.error(message);
@@ -282,70 +394,44 @@ function executeFunctionCall(
     return false;
   };
 
-  let currentTarget = target;
-  for (let i = 0; i < messagePath.length - 1; i++) {
-    if (currentTarget[messagePath[i]] === undefined) {
-      const message = `Path ${messagePath
-        .slice(0, i + 1)
-        .join(".")} not found in target ${currentTarget}`;
-      return returnError(message);
-    }
-    currentTarget = currentTarget[messagePath[i]];
-  }
-
-  const functionName = messagePath[messagePath.length - 1];
-  const functionToCall = currentTarget[functionName];
-
   if (functionToCall === undefined) {
-    if (payload.length === 0) {
-      // potential index call - no args only a path:
-      let result = target;
-      for (let i = 0; i < messagePath.length; i++) {
-        if (result === undefined) {
-          const message = `Path ${messagePath
-            .slice(0, i + 1)
-            .join(".")} access on undefined`;
-          return returnError(message);
-        }
-        result = result[messagePath[i]];
-      }
-
-      createAndSendResponse(result);
-      return false;
-    }
-
-    return returnError(
-      `${messagePath.join(".")} not found on target ${currentTarget}`
-    );
-  }
-
-  if (typeof functionToCall !== "function" && payload.length === 0) {
-    createAndSendResponse(functionToCall);
-    return false;
+    return returnError(`Function not found on target ${functionObjectId}`);
   }
 
   console.log("Transforming events in payload", payload);
-  const eventedPayload = transformEventsInPayload(payload);
+  const eventedPayload = transformEventsInPayload(globalContext, payload);
 
   console.log("Executing function", functionToCall, eventedPayload);
-  try{
-    const result = functionToCall.apply(currentTarget, eventedPayload);
+  try {
+    const result = functionToCall(...eventedPayload);
     Promise.resolve(result)
       .then((resolvedResult: any) => {
         console.log("Result for function", functionToCall, resolvedResult);
         createAndSendResponse(resolvedResult);
       })
       .catch((error: any) => {
-        console.error(`Error in ${messagePath.join(".")}:`, error);
+        console.error(`Error in function call:`, error);
         createAndSendResponse({ error: error.message });
       });
-    return true; 
+    return true;
   } catch (error) {
-    console.error(`Error in ${messagePath.join(".")}:`, error);
+    console.error(`Error in function call:`, error);
     createAndSendResponse({ error: error });
     return false;
   }
   // Indicate that we will send a response asynchronously
+}
+
+function executePropertyAccess(
+  property: string,
+  target: any,
+  createAndSendResponse: (response: any) => void
+): boolean {
+  console.log("Recieved property access", property, target);
+
+  const value = target[property];
+  createAndSendResponse(value);
+  return false;
 }
 
 // Define the types
@@ -358,11 +444,34 @@ export type ObjectReferenceResponse = {
   deserializeData?: boolean;
 };
 
+export type FunctionReferenceResponse = {
+  data: { type: "function" };
+  messageType: "functionReferenceResponse";
+  functionId?: string | undefined;
+  iteratorId?: string | undefined;
+  correlationId: string;
+  deserializeData?: boolean;
+};
+
 export type IterableResponse = ObjectReferenceResponse & {
   iteratorId?: string | undefined;
 };
 
+function createFunctionResponse(
+  correlationId: string,
+  functionId: string
+): FunctionReferenceResponse {
+  return {
+    messageType: "functionReferenceResponse" as const,
+    correlationId: correlationId,
+    deserializeData: false,
+    data: { type: "function" },
+    functionId: functionId,
+  };
+}
+
 function createResponse(
+  objectId: string,
   result: any,
   correlationId: string
 ): ObjectReferenceResponse {
@@ -371,10 +480,7 @@ function createResponse(
     correlationId: correlationId,
   };
   if (!result) {
-    return {
-      ...baseResponse,
-      data: result,
-    };
+    return { ...baseResponse, data: undefined };
   }
 
   const shouldSerialize = shouldSerializeResult(result);
@@ -405,17 +511,13 @@ function createResponse(
     result !== null &&
     result[Symbol.iterator] !== undefined;
   if (isIterable) {
-    resultMessage = addIterablesToResponse(result, resultMessage);
+    resultMessage = addIterablesToResponse(objectId, resultMessage);
   }
 
-  if (shouldStoreObjectReference(result)) {
-    resultMessage = {
-      ...resultMessage,
-      objectId: storeObjectReference(result),
-    };
-  }
-
-  return resultMessage;
+  return {
+    ...resultMessage,
+    objectId: objectId,
+  };
 }
 
 // TODO: This is a hack to prevent circular references and functions from being serialized.
@@ -446,12 +548,10 @@ function makeObjectCloneable(data: any): any {
 }
 
 function addIterablesToResponse(
-  result: any,
+  objectId: string,
   message: ObjectReferenceResponse
 ): ObjectReferenceResponse {
-  const iterator = result[Symbol.iterator]();
-
-  const iteratorId = storeObjectReference(iterator);
+  const iteratorId = storeObjectReference(objectId, Symbol.iterator);
 
   let resultMessage: IterableResponse = {
     ...message,
@@ -467,7 +567,8 @@ function shouldSerializeResult(result: any): boolean {
     typeof result === "boolean" ||
     typeof result === "string" ||
     result === null ||
-    result === undefined
+    result === undefined ||
+    typeof result === "function"
   ) {
     return false;
   }
@@ -479,23 +580,6 @@ function hasPrototype(obj: any): boolean {
     Object.getPrototypeOf(obj) !== null &&
     Object.getPrototypeOf(obj) !== Object.prototype
   );
-}
-
-const nullTarget = { value: null };
-
-function storeObjectReference(obj: any) {
-  if (obj === undefined || obj === null) {
-    objectStore.set("null", nullTarget);
-    return "null";
-  }
-  // Generate a unique ID and store the result
-  const objectId = `obj_${nextObjectId++}`;
-  objectStore.set(objectId, obj);
-  return objectId;
-}
-
-function shouldStoreObjectReference(obj: any): boolean {
-  return true;
 }
 
 function hasMethods(obj: any): boolean {

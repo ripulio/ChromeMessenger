@@ -71,19 +71,32 @@ export function createObjectWrapperWithCallbackRegistry<T>(
         return undefined;
       }
 
-      return createFunctionProxy(
-        prop,
-        path,
-        callbackRegistry,
-        (prop === "done" || prop === "next") && iteratorId
-          ? iteratorId
-          : objectId,
-        data
-      );
+      if (prop === "__setProp") {
+        return (property: string, value: any) => {
+          return propertyAssignmentHandler(
+            callbackRegistry,
+            property,
+            value,
+            objectId,
+            path[0]
+          );
+        };
+      }
+
+      return propertyAccessHandler(prop, objectId, path[0]);
     },
     apply(target: any, thisArg: any, args: any[]) {
-      console.error("apply called on object in get trap", thisArg);
-      return undefined;
+      const wrappedArgs = args.map((arg: any) =>
+        typeof arg === "function"
+          ? registerCallback(arg, callbackRegistry)
+          : arg
+      );
+      return functionInvocationHandler(
+        path[0],
+        objectId,
+        callbackRegistry,
+        ...wrappedArgs
+      );
     },
     [Symbol.toStringTag]: () => data.toString(),
     toString: () => data.toString(),
@@ -105,10 +118,10 @@ export function createObjectWrapperWithCallbackRegistry<T>(
   ) as unknown as T;
 }
 
-export function createFunctionWrapperWithCallbackRegistry<T>(
-  functionPath: string[],
-  node: keyof T,
-  callbackRegistry: Map<string, Function>
+export function createFunctionWrapperWithCallbackRegistry(
+  functionName: string | undefined,
+  callbackRegistry: Map<string, Function>,
+  objectId?: string
 ): Function {
   const handler = {
     apply(target: any, thisArg: any, args: any[]) {
@@ -118,9 +131,9 @@ export function createFunctionWrapperWithCallbackRegistry<T>(
           : arg
       );
       return functionInvocationHandler(
-        functionPath,
-        node,
-        undefined,
+        functionName,
+        objectId,
+        callbackRegistry,
         ...wrappedArgs
       );
     },
@@ -144,51 +157,6 @@ export function createObjectWrapper<T>(
   };
 
   return new Proxy(function () {}, handler) as PromisifyNonPromiseMethods<T>;
-}
-
-function createFunctionProxy(
-  prop: any,
-  path: string[],
-  callbackRegistry: Map<string, Function>,
-  objectId: string | undefined,
-  data: any
-) {
-  return new Proxy(function () {}, {
-    apply(target: any, thisArg: any, args: any[]) {
-      if (typeof prop === "symbol" && prop === Symbol.asyncIterator) {
-        return handleAsyncIteration(objectId);
-      }
-
-      if (typeof prop === "symbol" && prop === Symbol.iterator) {
-        console.error("iterator called directly on object in apply trap", [
-          ...path,
-          prop,
-        ]);
-        return Promise.resolve(undefined);
-      }
-
-      if (
-        data &&
-        data[prop] &&
-        typeof data[prop] !== "object" &&
-        args.length === 0
-      ) {
-        //console.error("Returning data", [...path, prop], data[prop]);
-        //return Promise.resolve(data[prop]);
-      }
-
-      const wrappedArgs = args.map((arg) =>
-        transformArg(arg, callbackRegistry)
-      );
-
-      return functionInvocationHandler(path, prop, objectId, ...wrappedArgs);
-    },
-    get(target: any, prop: any) {
-      if (propIsProxy(prop)) {
-        return true;
-      }
-    }
-  });
 }
 
 const IS_PROXY = Symbol("isProxy");
@@ -239,24 +207,78 @@ function handleAsyncIteration(objectId: string | undefined) {
   };
 }
 
-async function functionInvocationHandler<T>(
-  functionPath: string[],
+export type PropertyAccessMessage = {
+  correlationId: string;
+  messageType: "propertyAccess";
+  propertyName: string;
+  source: "sandbox" | "content";
+  destination: "sandbox" | "content";
+  objectId?: string | undefined;
+  objectName?: string | undefined;
+};
+
+async function propertyAccessHandler(
   prop: any,
   objectId: string | undefined,
-  ...args: any[]
-): Promise<T[keyof T]> {
+  objectName?: string | undefined
+): Promise<any> {
   if (prop === "then") {
     console.error(
       "then called directly on object in function invocation trap",
-      [...functionPath, prop]
+      [objectId, prop]
     );
   }
   const correlationId = generateUniqueId();
 
-  const message = {
+  const message: PropertyAccessMessage = {
+    correlationId: correlationId,
+    messageType: "propertyAccess",
+    propertyName: prop,
+    source: "sandbox",
+    destination: "content",
+    objectId: objectId,
+    objectName: objectName,
+  };
+
+  console.log(`Sending message: ${JSON.stringify(message)}`);
+  try {
+    window.parent.postMessage(message, "*");
+  } catch (e) {
+    console.error("Error sending message", e);
+  }
+
+  const response = await waitForResponse(correlationId);
+  return response.proxy;
+}
+
+export type ProxyInvocationMessage = {
+  correlationId: string;
+  messageType: "ProxyInvocation";
+  functionName: string;
+  objectId: string | undefined;
+  payload: any[];
+  source: "sandbox" | "content";
+  destination: "sandbox" | "content";
+};
+
+async function functionInvocationHandler(
+  prop: any,
+  objectId: string | undefined,
+  callbackRegistry: Map<string, Function>,
+  ...args: any[]
+): Promise<any> {
+  if (prop === "then") {
+    console.error(
+      "then called directly on object in function invocation trap",
+      [prop]
+    );
+  }
+  const correlationId = generateUniqueId();
+
+  const message: ProxyInvocationMessage = {
     correlationId: correlationId,
     messageType: "ProxyInvocation",
-    functionPath: [...functionPath, prop],
+    functionName: prop,
     objectId: objectId,
     payload: args,
     source: "sandbox",
@@ -264,12 +286,7 @@ async function functionInvocationHandler<T>(
   };
 
   for (const key in message.payload) {
-    // Convert functions to strings to avoid serialization issues
-    if (typeof message.payload[key] === "function") {
-      console.error("Transforming argument", key, message.payload[key]);
-      message.payload[key] = message.payload[key].toString();
-      continue;
-    }
+    message.payload[key] = transformArg(message.payload[key], callbackRegistry);
   }
 
   console.log(`Sending message: ${JSON.stringify(message)}`);
@@ -279,7 +296,52 @@ async function functionInvocationHandler<T>(
     console.error("Error sending message", e);
   }
 
-  const response = await waitForResponse<T>(correlationId);
+  const response = await waitForResponse(correlationId);
+  return response.proxy;
+}
+
+export type PropertyAssignmentMessage = {
+  correlationId: string;
+  messageType: "propertyAssignment";
+  propertyName: string;
+  value: any;
+  source: "sandbox" | "content";
+  destination: "sandbox" | "content";
+  objectId: string | undefined;
+  objectName?: string | undefined;
+};
+
+async function propertyAssignmentHandler(
+  callbackRegistry: Map<string, Function>,
+  property: string,
+  value: any,
+  objectId: string | undefined,
+  objectName?: string | undefined
+) {
+  const correlationId = generateUniqueId();
+
+  const message: PropertyAssignmentMessage = {
+    correlationId: correlationId,
+    messageType: "propertyAssignment",
+    propertyName: property,
+    value: transformArg(value, callbackRegistry),
+    objectId: objectId,
+    objectName: objectName,
+    source: "sandbox",
+    destination: "content",
+  };
+
+  // TODO hydrate 'value' if it's a proxy
+
+  // TODO replace 'value' if its a function
+  console.log(`Sending message: ${JSON.stringify(message)}`);
+  try {
+    window.parent.postMessage(message, "*");
+  } catch (e) {
+    console.error("Error sending message", e);
+  }
+
+  const response = await waitForResponse(correlationId);
   return response.proxy;
 }
 

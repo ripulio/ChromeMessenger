@@ -1,7 +1,9 @@
 import { createObjectWrapperFactory } from "./ObjectWrapperFactory";
 import {
   createCallbackRegistry,
+  createFunctionWrapperWithCallbackRegistry,
   createObjectWrapperWithCallbackRegistry,
+  Function,
 } from "./TypeUtilities";
 
 const pendingPromises = new Map<
@@ -81,6 +83,17 @@ export function createSandboxDynamicCodeServer(
       return;
     }
 
+    if (event.data?.messageType === "functionReferenceResponse") {
+      const correlationId = event.data.correlationId;
+      const returnValue = createFunctionWrapperWithCallbackRegistry(
+        event.data.functionName,
+        callbackRegistry,
+        event.data.functionId
+      );
+      resolvePromise(correlationId, returnValue, event.data);
+      return;
+    }
+
     if (event.data.correlationId) {
       if (event.data.error) {
         resolvePromise(
@@ -113,7 +126,25 @@ function executeCallback(
   const callback = callbackRegistry.get(callbackId);
   if (callback) {
     // Deserialize each argument
-    const deserializedArgs = args.map((arg: string) => JSON.parse(arg));
+    const deserializedArgs = args.map((arg: any) => {
+      if (arg.type === "objectReference") {
+        return createObjectWrapperWithCallbackRegistry(
+          [],
+          callbackRegistry,
+          undefined,
+          arg.objectId,
+          JSON.parse(arg.value)
+        );
+      }
+      if (arg.type === "functionReference") {
+        return createFunctionWrapperWithCallbackRegistry(
+          undefined,
+          callbackRegistry,
+          arg.functionId
+        );
+      }
+      return arg;
+    });
     callback(...deserializedArgs);
     return;
   }
