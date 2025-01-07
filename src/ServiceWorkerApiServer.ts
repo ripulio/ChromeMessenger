@@ -74,7 +74,7 @@ export function createServiceWorkerApiServer<T extends object>(
         })
         .catch((error) => {
           console.error(`Error in ${messagePath.join(".")}:`, error);
-          sendResponse({ ...baseMessage, error: error.message });
+          sendResponse({ ...baseMessage, error: error?.message ?? error });
         });
       return true;
     }
