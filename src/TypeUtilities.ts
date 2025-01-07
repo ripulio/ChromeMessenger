@@ -19,8 +19,9 @@ export type PromisifyNonPromiseMethods<T> = {
     : T[K];
 };
 
-export function createCallbackRegistry(): Map<string, Function> {
-  return new Map<string, Function>();
+const callbackRegistry = new Map<string, Function>();
+export function getCallbackRegistry(): Map<string, Function> {
+  return callbackRegistry;
 }
 
 export function createObjectWrapperWithCallbackRegistry<T>(
@@ -295,7 +296,7 @@ function registerCallback(
   return "__callback__|" + callbackId;
 }
 
-function transformArg(arg: any, callbackRegistry: Map<string, Function>): any {
+export function transformArg(arg: any, callbackRegistry: Map<string, Function>): any {
   switch (typeof arg) {
     case "function":
       return registerCallback(arg, callbackRegistry);

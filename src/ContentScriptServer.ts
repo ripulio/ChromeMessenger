@@ -1,26 +1,26 @@
+import { generateUniqueId } from "./TypeUtilities";
+
 export function createContentScriptApiServer<T extends object>(
   contentScriptApi: T,
   globalContext: typeof globalThis
 ): void {
   chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-
     const createAndSendResponse = (result: any) => {
       const response = createResponse(result, request.correlationId);
       sendResponse(response);
-    }
+    };
 
     if (request.source === "sandbox") {
       console.log("Recieved sandbox message", request);
       switch (request.messageType) {
         case "ProxyInvocation":
-
           const target = getTarget(request, globalContext);
 
           if (isComparison(request.functionPath)) {
             const result = executeComparison(
               request.payload[0],
               target,
-              transformObjectReferenceArg(request.payload[1], objectStore)
+              hydrateObjectReferenceArg(request.payload[1], objectStore)
             );
             createAndSendResponse(result);
             return false;
@@ -28,11 +28,12 @@ export function createContentScriptApiServer<T extends object>(
 
           if (isAssignment(request.payload)) {
             const arg = request.payload[0].value;
-            const transformedArg = transformObjectReferenceArg(
-              arg,
-              objectStore
+            const transformedArg = hydrateObjectReferenceArg(arg, objectStore);
+            const result = executeAssignment(
+              transformedArg,
+              target,
+              request.functionPath
             );
-            const result = executeAssignment(transformedArg, target, request.functionPath);
             createAndSendResponse(result);
             return false;
           }
@@ -40,7 +41,7 @@ export function createContentScriptApiServer<T extends object>(
           executeFunctionCall(
             request.functionPath,
             injectCallbackPropogationIntoPayload(
-              injectStoredObjectReferencesIntoPayload(request.payload, objectStore),
+              hydrateStoredObjectReferences(request.payload, objectStore),
               globalContext,
               request.sandboxTabId
             ),
@@ -58,6 +59,15 @@ export function createContentScriptApiServer<T extends object>(
       return true;
     }
 
+    if (request.payload) {
+      const transformedArgs = request.payload.map((arg: any) => {
+        if (typeof arg === "string" && arg.startsWith("__callback__|")) {
+            return createCallback(globalContext, arg, request.sandboxTabId);
+        }
+        return arg;
+      });
+      request.payload = transformedArgs;
+    }
     // Handle non-proxy messages
     executeFunctionCall(
       request.functionPath,
@@ -72,10 +82,10 @@ export function createContentScriptApiServer<T extends object>(
 const objectStore = new Map<string, any>();
 let nextObjectId = 1;
 
-function getTarget(request: any, globalContext: typeof globalThis){ 
+function getTarget(request: any, globalContext: typeof globalThis) {
   return request.objectId === undefined
-  ? globalContext
-  : objectStore.get(request.objectId); 
+    ? globalContext
+    : objectStore.get(request.objectId);
 }
 
 function executeComparison(
@@ -107,10 +117,10 @@ function executeComparison(
   }
 }
 
-function injectStoredObjectReferencesIntoPayload(
+function hydrateStoredObjectReferences(
   payload: any,
   objectStore: Map<string, any>
-) : any {
+): any {
   for (const key in payload) {
     const arg = payload[key];
     if (typeof arg === "object") {
@@ -119,7 +129,7 @@ function injectStoredObjectReferencesIntoPayload(
         payload[key] = objectStore.get(arg.objectId);
       } else {
         // recursively inject object references
-        payload[key] = injectStoredObjectReferencesIntoPayload(arg, objectStore);
+        payload[key] = hydrateStoredObjectReferences(arg, objectStore);
       }
     }
   }
@@ -127,7 +137,7 @@ function injectStoredObjectReferencesIntoPayload(
   return payload;
 }
 
-function transformObjectReferenceArg(arg: any, objectStore: Map<string, any>) {
+function hydrateObjectReferenceArg(arg: any, objectStore: Map<string, any>) {
   if (
     typeof arg === "object" &&
     arg !== null &&
@@ -149,22 +159,49 @@ function injectCallbackPropogationIntoPayload(
       payload[key].startsWith("__callback__|")
     ) {
       const callbackReference = payload[key];
-      payload[key] = (...args: any[]) =>
-        globalContext.chrome.runtime.sendMessage({
-          callbackReference: callbackReference,
-          sandboxTabId: sandboxTabId,
-          messageType: "sandboxCallback",
-          args: args.map((arg) => {
-            try {
-              return stringifyEvent(arg);
-            } catch (error) {
-              return `[Unserializable: ${typeof arg}]`;
-            }
-          }),
-        });
+      payload[key] = createCallback(
+        globalContext,
+        callbackReference,
+        sandboxTabId
+      );
     }
   }
   return payload;
+}
+
+export type SandboxCallbackMessage = {
+  callbackReference: string;
+  sandboxTabId: number;
+  messageType: "sandboxCallback";
+  correlationId: string;
+  args: any[];
+};
+
+function createCallback(
+  globalContext: typeof globalThis,
+  callbackReference: string,
+  sandboxTabId: number
+) {
+  const correlationId = generateUniqueId();
+  return (...args: any[]) =>{
+    globalContext.chrome.runtime.sendMessage({
+      callbackReference: callbackReference,
+      sandboxTabId: sandboxTabId,
+      messageType: "sandboxCallback",
+      correlationId: correlationId,
+      args: args.map((arg) => {
+        if (typeof arg === "object") {
+          return {
+            type: "objectReference",
+            objectId: storeObjectReference(arg),
+            value: stringifyEvent(arg),
+          };
+        }
+        return arg;
+      }),
+    });
+  }
+
 }
 
 function stringifyEvent(e: any) {
@@ -198,7 +235,7 @@ function executeAssignment(arg: any, target: any, path: string[]): boolean {
     current = current[path[i]];
   }
 
-  return current[path[path.length - 1]] = arg;
+  return (current[path[path.length - 1]] = arg);
 }
 
 function transformEventsInPayload(payload: any[]): any[] {
@@ -240,7 +277,7 @@ function argumentToEvent(argument: any): Event | null {
       console.warn(`Failed to get event constructor for ${argument.eventType}`);
       return null;
     }
-    const hydratedEventInit = injectStoredObjectReferencesIntoPayload(
+    const hydratedEventInit = hydrateStoredObjectReferences(
       eventInit,
       objectStore
     );
@@ -328,7 +365,7 @@ function executeFunctionCall(
   const eventedPayload = transformEventsInPayload(payload);
 
   console.log("Executing function", functionToCall, eventedPayload);
-  try{
+  try {
     const result = functionToCall.apply(currentTarget, eventedPayload);
     Promise.resolve(result)
       .then((resolvedResult: any) => {
@@ -339,7 +376,7 @@ function executeFunctionCall(
         console.error(`Error in ${messagePath.join(".")}:`, error);
         createAndSendResponse({ error: error.message });
       });
-    return true; 
+    return true;
   } catch (error) {
     console.error(`Error in ${messagePath.join(".")}:`, error);
     createAndSendResponse({ error: error });

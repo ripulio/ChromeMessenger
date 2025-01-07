@@ -1,6 +1,6 @@
 import { createObjectWrapperFactory } from "./ObjectWrapperFactory";
 import {
-  createCallbackRegistry,
+  getCallbackRegistry,
   createObjectWrapperWithCallbackRegistry,
 } from "./TypeUtilities";
 
@@ -26,7 +26,7 @@ export function waitForResponse<T>(
 export function createSandboxDynamicCodeServer(
   handler: (message: MessageEvent, proxies: Window & typeof globalThis) => void
 ) {
-  const callbackRegistry = createCallbackRegistry();
+  const callbackRegistry = getCallbackRegistry();
   const referenceState = window as Window & typeof globalThis;
 
   window.addEventListener("message", (event) => {
@@ -46,11 +46,7 @@ export function createSandboxDynamicCodeServer(
     // callback from content script, execute against
     // callback registry
     if (event.data?.messageType === "sandboxCallback") {
-      return executeCallback(
-        event.data.callbackReference,
-        callbackRegistry,
-        event.data.args
-      );
+      const result = executeCallback(event.data.callbackReference, event.data.args);
     }
 
     if (event.data?.messageType === "objectReferenceResponse") {
@@ -104,17 +100,36 @@ export function createSandboxDynamicCodeServer(
   });
 }
 
-function executeCallback(
-  callbackReference: string,
-  callbackRegistry: Map<string, Function>,
-  args: any[]
-): void {
+function executeCallback(callbackReference: string, args: any[]): any {
+  const callbackRegistry = getCallbackRegistry();
   const callbackId = callbackReference.split("|")[1];
   const callback = callbackRegistry.get(callbackId);
   if (callback) {
     // Deserialize each argument
-    const deserializedArgs = args.map((arg: string) => JSON.parse(arg));
-    callback(...deserializedArgs);
+    const deserializedArgs = args.map((arg: any) => {
+      if (arg.type === "objectReference") {
+        return createObjectWrapperWithCallbackRegistry(
+          [],
+          callbackRegistry,
+          arg.iteratorId,
+          arg.objectId,
+          arg.value
+        );
+      }
+      return arg;
+    });
+    const result = callback(...deserializedArgs);
+    if (!result) {
+      return;
+    }
+
+    if ((result as any).isProxy) {
+      return {
+        type: "proxyReference",
+        proxyId: (result as any).isProxy,
+      };
+    }
+
     return;
   }
   throw new Error(`Callback ${callbackReference} not found`);
