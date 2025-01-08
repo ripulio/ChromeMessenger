@@ -7,6 +7,7 @@ import {
   storeStaticObjectReference,
 } from "./ContentScriptReferenceStore";
 import {
+  ComparisonMessage,
   PropertyAccessMessage,
   PropertyAssignmentMessage,
   ProxyInvocationMessage,
@@ -144,6 +145,14 @@ export function createContentScriptApiServer<T extends object>(
           );
           createAndSendStaticResponse(result);
           return false;
+        case "comparison":
+          const comparisonMessage = request as ComparisonMessage;
+          const comparisonResult = executeComparison(
+            comparisonMessage,
+            globalContext
+          );
+          createAndSendStaticResponse(comparisonResult);
+          return false;
         default:
           console.warn(
             `Unhandled sandbox message type: ${request.messageType}`
@@ -187,30 +196,41 @@ function getContextObjectId(propertyAccessMessage: PropertyAccessMessage) {
 }
 
 function executeComparison(
-  comparisonIdentifier: string,
-  left: any,
-  right: any
+  comparisonMessage: ComparisonMessage,
+  globalContext: any
 ) {
-  console.log("Executing comparison", comparisonIdentifier, left, right);
+  const left = getObjectReference(globalContext, comparisonMessage.objectId);
+  const right =
+    comparisonMessage.value?.type === "objectReference"
+      ? getObjectReference(globalContext, comparisonMessage.value.objectId)
+      : comparisonMessage.value;
+  console.log(
+    "Executing comparison",
+    comparisonMessage.operatorKind,
+    left,
+    right
+  );
 
   // Map TypeScript SyntaxKind values to comparison operations
-  switch (comparisonIdentifier) {
-    case "32": // EqualsEqualsToken
+  switch (comparisonMessage.operatorKind) {
+    case 32: // EqualsEqualsToken
       return left > right;
-    case "33": // EqualsEqualsEqualsToken
+    case 33: // EqualsEqualsEqualsToken
       return left <= right;
-    case "36": // ExclamationEqualsToken
+    case 36: // ExclamationEqualsToken
       return left != right;
-    case "35": // ExclamationEqualsEqualsToken
+    case 35: // ExclamationEqualsEqualsToken
       return left !== right;
-    case "30": // LessThanToken
+    case 30: // LessThanToken
       return left < right;
-    case "37": // LessThanEqualsToken
+    case 37: // LessThanEqualsToken
       return left === right;
-    case "34": // GreaterThanEqualsToken
+    case 34: // GreaterThanEqualsToken
       return left >= right;
+    case 57:
+      return left || right;
     default:
-      console.warn(`Unknown comparison operator: ${comparisonIdentifier}`);
+      console.warn(`Unknown comparison operator: ${comparisonMessage.operatorKind}`);
       return false;
   }
 }
@@ -271,12 +291,12 @@ function injectCallbackPropogationIntoPayload(
               return { type: "functionReference", functionId: storedArg };
             }
             const storedArg = storeStaticObjectReference(arg);
-            try{
+            try {
               const stringifiedArg = stringifyEvent(arg);
               return {
                 type: "objectReference",
                 objectId: storedArg,
-                value: stringifiedArg
+                value: stringifiedArg,
               };
             } catch (error) {
               return {

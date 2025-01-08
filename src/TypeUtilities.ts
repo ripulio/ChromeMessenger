@@ -83,6 +83,12 @@ export function createObjectWrapperWithCallbackRegistry<T>(
         };
       }
 
+      if (prop === "__compare"){
+        return (comparison: {value: any, operatorKind: number}) => {
+          return comparisonHandler(comparison, objectId, callbackRegistry);
+        }
+      }
+
       return propertyAccessHandler(prop, objectId, path[0]);
     },
     apply(target: any, thisArg: any, args: any[]) {
@@ -311,6 +317,37 @@ export type PropertyAssignmentMessage = {
   objectName?: string | undefined;
 };
 
+export type ComparisonMessage = {
+  correlationId: string;
+  messageType: "comparison";
+  value: any;
+  operatorKind: number;
+  source: "sandbox" | "content";
+  destination: "sandbox" | "content";
+  objectId: string;
+  objectName?: string | undefined;
+};
+
+async function comparisonHandler(
+  comparison: {value: any, operatorKind: number},
+  objectId: string | undefined,
+  callbackRegistry: Map<string, Function>
+) {
+  const correlationId = generateUniqueId();
+  const baseMessage = {
+    correlationId: correlationId,
+    messageType: "comparison",
+    operatorKind: comparison.operatorKind,
+    source: "sandbox",
+    destination: "content",
+    objectId: objectId,
+    objectName: undefined,
+    value: transformArg(comparison.value, callbackRegistry),
+  };
+
+  return awaitMessageResponse(baseMessage, correlationId);
+}
+
 async function propertyAssignmentHandler(
   callbackRegistry: Map<string, Function>,
   property: string,
@@ -331,14 +368,15 @@ async function propertyAssignmentHandler(
     destination: "content",
   };
 
-  // TODO hydrate 'value' if it's a proxy
+  return awaitMessageResponse(message, correlationId);
+}
 
-  // TODO replace 'value' if its a function
-  console.log(`Sending message: ${JSON.stringify(message)}`);
+async function awaitMessageResponse(message: any, correlationId: string) {
   try {
     window.parent.postMessage(message, "*");
   } catch (e) {
     console.error("Error sending message", e);
+    throw e;
   }
 
   const response = await waitForResponse(correlationId);
