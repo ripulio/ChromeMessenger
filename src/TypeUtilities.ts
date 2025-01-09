@@ -251,15 +251,7 @@ async function propertyAccessHandler(
     objectName: objectName,
   };
 
-  console.log(`Sending message: ${JSON.stringify(message)}`);
-  try {
-    window.parent.postMessage(message, "*");
-  } catch (e) {
-    console.error("Error sending message", e);
-  }
-
-  const response = await waitForResponse(correlationId);
-  return response.proxy;
+  return await awaitMessageResponse(message, correlationId);
 }
 
 export type ProxyInvocationMessage = {
@@ -300,15 +292,7 @@ async function functionInvocationHandler(
     message.payload[key] = transformArg(message.payload[key], callbackRegistry);
   }
 
-  console.log(`Sending message: ${JSON.stringify(message)}`);
-  try {
-    window.parent.postMessage(message, "*");
-  } catch (e) {
-    console.error("Error sending message", e);
-  }
-
-  const response = await waitForResponse(correlationId);
-  return response.proxy;
+  return await awaitMessageResponse(message, correlationId);
 }
 
 export type PropertyAssignmentMessage = {
@@ -350,7 +334,7 @@ async function comparisonHandler(
     value: transformArg(comparison.value, callbackRegistry),
   };
 
-  return awaitMessageResponse(baseMessage, correlationId);
+  return (await awaitMessageResponse(baseMessage, correlationId, "raw")).data;
 }
 
 async function propertyAssignmentHandler(
@@ -373,10 +357,10 @@ async function propertyAssignmentHandler(
     destination: "content",
   };
 
-  return awaitMessageResponse(message, correlationId);
+  return await awaitMessageResponse(message, correlationId);
 }
 
-async function awaitMessageResponse(message: any, correlationId: string) {
+async function awaitMessageResponse(message: any, correlationId: string, result: "proxy" | "raw" = "proxy") {
   try {
     window.parent.postMessage(message, "*");
   } catch (e) {
@@ -385,7 +369,7 @@ async function awaitMessageResponse(message: any, correlationId: string) {
   }
 
   const response = await waitForResponse(correlationId);
-  return response.proxy;
+  return result === "proxy" ? response.proxy : response.raw;
 }
 
 function registerCallback(
