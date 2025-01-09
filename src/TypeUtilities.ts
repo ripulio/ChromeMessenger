@@ -130,6 +130,11 @@ export function createFunctionWrapperWithCallbackRegistry(
   objectId?: string
 ): Function {
   const handler = {
+    get(target: any, prop: any) {
+      if (prop === "isProxy") {
+        return true;
+      }
+    },
     apply(target: any, thisArg: any, args: any[]) {
       const wrappedArgs = args.map((arg: any) =>
         typeof arg === "function"
