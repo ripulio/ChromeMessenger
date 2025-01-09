@@ -38,13 +38,13 @@ export function createContentScriptApiServer<T extends object>(
       sendResponse(response);
     };
 
-    const createAndSendStaticResponse = (result: any) => {
+    const createAndSendStaticObjectResponse = (result: any) => {
       const objectId = storeStaticObjectReference(result);
       const response = createResponse(objectId, result, request.correlationId);
       sendResponse(response);
     };
 
-    const createAndSendResponse = (
+    const createAndSendObjectResponse = (
       result: any,
       key: string,
       contextObjectId: string
@@ -60,22 +60,6 @@ export function createContentScriptApiServer<T extends object>(
       switch (request.messageType) {
         case "ProxyInvocation":
           const message = request as ProxyInvocationMessage;
-          const target =
-            message.objectId !== undefined
-              ? getObjectReference(globalContext, message.objectId)
-              : globalContext;
-
-          /*
-          if (isComparison(message.functionName)) {
-            const result = executeComparison(
-              message.payload[0],
-              target,
-              transformObjectReferenceArg(globalContext, message.payload[1])
-            );
-            createAndSendStaticResponse(result);
-            return false;
-          }
-          */
 
           if (!request.objectId) {
             request.objectId = storeFunctionReference(
@@ -97,7 +81,7 @@ export function createContentScriptApiServer<T extends object>(
             (result: any) =>
               typeof result === "function"
                 ? createAndSendStaticFunctionResponse(result)
-                : createAndSendStaticResponse(result),
+                : createAndSendStaticObjectResponse(result),
             globalContext
           );
 
@@ -118,7 +102,7 @@ export function createContentScriptApiServer<T extends object>(
                     propertyAccessMessage.propertyName,
                     contextObjectId
                   )
-                : createAndSendResponse(
+                : createAndSendObjectResponse(
                     result,
                     propertyAccessMessage.propertyName,
                     contextObjectId
@@ -143,7 +127,7 @@ export function createContentScriptApiServer<T extends object>(
             propertyAssignmentTarget,
             propertyAssignmentMessage.propertyName
           );
-          createAndSendStaticResponse(result);
+          createAndSendStaticObjectResponse(result);
           return false;
         case "comparison":
           const comparisonMessage = request as ComparisonMessage;
@@ -151,7 +135,7 @@ export function createContentScriptApiServer<T extends object>(
             comparisonMessage,
             globalContext
           );
-          createAndSendStaticResponse(comparisonResult);
+          createAndSendStaticObjectResponse(comparisonResult);
           return false;
         default:
           console.warn(
@@ -162,13 +146,8 @@ export function createContentScriptApiServer<T extends object>(
       return true;
     }
 
-    // Handle non-proxy messages
-    executeFunctionCall(
-      request.objectId,
-      request.payload,
-      (result) => sendResponse(result),
-      globalContext
-    );
+    createAndSendStaticObjectResponse((contentScriptApi as any)[request.functionPath[0]](...request.payload));
+
     return true;
   });
 }
@@ -219,7 +198,7 @@ function executeComparison(
       return left <= right;
     case 36: // ExclamationEqualsToken
       return left != right;
-    case 35: // ExclamationEqualsEqualsToken
+    case 38: // ExclamationEqualsEqualsToken
       return left !== right;
     case 30: // LessThanToken
       return left < right;
@@ -499,7 +478,7 @@ function createResponse(
     messageType: "objectReferenceResponse" as const,
     correlationId: correlationId,
   };
-  if (!result) {
+  if (result === undefined || result === null) {
     return { ...baseResponse, data: undefined };
   }
 
