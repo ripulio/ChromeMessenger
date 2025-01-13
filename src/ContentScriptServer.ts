@@ -1,3 +1,5 @@
+import { IterableResponse } from "./Messages/IterableResponse";
+import { ObjectReferenceResponse } from "./Messages/ObjectReferenceResponse";
 import { generateUniqueId } from "./TypeUtilities";
 
 export function createContentScriptApiServer<T extends object>(
@@ -62,7 +64,7 @@ export function createContentScriptApiServer<T extends object>(
     if (request.payload) {
       const transformedArgs = request.payload.map((arg: any) => {
         if (typeof arg === "string" && arg.startsWith("__callback__|")) {
-            return createCallback(globalContext, arg, request.sandboxTabId);
+          return createCallback(globalContext, arg, request.sandboxTabId);
         }
         return arg;
       });
@@ -169,21 +171,13 @@ function injectCallbackPropogationIntoPayload(
   return payload;
 }
 
-export type SandboxCallbackMessage = {
-  callbackReference: string;
-  sandboxTabId: number;
-  messageType: "sandboxCallback";
-  correlationId: string;
-  args: any[];
-};
-
 function createCallback(
   globalContext: typeof globalThis,
   callbackReference: string,
   sandboxTabId: number
 ) {
   const correlationId = generateUniqueId();
-  return (...args: any[]) =>{
+  return (...args: any[]) => {
     globalContext.chrome.runtime.sendMessage({
       callbackReference: callbackReference,
       sandboxTabId: sandboxTabId,
@@ -200,8 +194,7 @@ function createCallback(
         return arg;
       }),
     });
-  }
-
+  };
 }
 
 function stringifyEvent(e: any) {
@@ -384,20 +377,6 @@ function executeFunctionCall(
   }
   // Indicate that we will send a response asynchronously
 }
-
-// Define the types
-export type ObjectReferenceResponse = {
-  data: any;
-  messageType: "objectReferenceResponse";
-  objectId?: string | undefined;
-  iteratorId?: string | undefined;
-  correlationId: string;
-  deserializeData?: boolean;
-};
-
-export type IterableResponse = ObjectReferenceResponse & {
-  iteratorId?: string | undefined;
-};
 
 function createResponse(
   result: any,
