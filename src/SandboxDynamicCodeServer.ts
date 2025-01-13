@@ -3,25 +3,7 @@ import {
   getCallbackRegistry,
   createObjectWrapperWithCallbackRegistry,
 } from "./TypeUtilities";
-
-const pendingPromises = new Map<
-  string,
-  (proxy: any, raw: MessageEvent<any>, error?: string) => void
->();
-
-export function waitForResponse<T>(
-  correlationId: string
-): Promise<{ proxy: T[keyof T]; raw: any; error?: string }> {
-  const promise = new Promise<{ proxy: T[keyof T]; raw: any; error?: string }>(
-    (resolve, reject) => {
-      pendingPromises.set(correlationId, (proxy, raw, error) =>
-        error ? reject(error) : resolve({ proxy, raw })
-      );
-      // todo handle timeout
-    }
-  );
-  return promise;
-}
+import { resolveResponse } from "./AsyncResponseDirectory";
 
 export function createSandboxDynamicCodeServer(
   handler: (message: MessageEvent, proxies: Window & typeof globalThis) => void
@@ -58,11 +40,11 @@ export function createSandboxDynamicCodeServer(
           : event.data.data;
 
       if (objectData === undefined || objectData === null) {
-        resolvePromise(correlationId, undefined, event.data);
+        resolveResponse(correlationId, undefined, event.data);
         return;
       }
       if (objectData.error) {
-        resolvePromise(correlationId, undefined, event.data, objectData.error);
+        resolveResponse(correlationId, undefined, event.data, objectData.error);
         return;
       }
 
@@ -73,20 +55,20 @@ export function createSandboxDynamicCodeServer(
         event.data.objectId,
         objectData
       );
-      resolvePromise(correlationId, returnValue, event.data);
+      resolveResponse(correlationId, returnValue, event.data);
       return;
     }
 
     if (event.data.correlationId) {
       if (event.data.error) {
-        resolvePromise(
+        resolveResponse(
           event.data.correlationId,
           null,
           event.data,
           event.data.error
         );
       }
-      resolvePromise(event.data.correlationId, null, event.data);
+      resolveResponse(event.data.correlationId, null, event.data);
       return;
     }
 
@@ -135,12 +117,3 @@ function executeCallback(callbackReference: string, args: any[]): any {
   throw new Error(`Callback ${callbackReference} not found`);
 }
 
-function resolvePromise(
-  correlationId: string,
-  proxy: any,
-  raw: any,
-  error?: string
-): void {
-  pendingPromises.get(correlationId)?.(proxy, raw, error);
-  pendingPromises.delete(correlationId);
-}

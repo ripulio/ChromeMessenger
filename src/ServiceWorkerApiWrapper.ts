@@ -1,4 +1,4 @@
-import { waitForResponse } from "./SandboxDynamicCodeServer";
+import { waitForResponse } from "./AsyncResponseDirectory";
 import {
   createObjectWrapper,
   generateUniqueId,

@@ -1,4 +1,4 @@
-import { waitForResponse } from "./SandboxDynamicCodeServer";
+import { waitForResponse } from "./AsyncResponseDirectory";
 
 type Primitive = string | number | boolean | null | undefined;
 export type Function = (...args: any[]) => unknown;
