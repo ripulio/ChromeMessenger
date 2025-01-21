@@ -44,7 +44,6 @@ export function createContentScriptApiServer<T extends object>(
             request.functionPath,
             injectCallbackPropogationIntoPayload(
               hydrateStoredObjectReferences(request.payload, objectStore),
-              globalContext,
               request.sandboxTabId
             ),
             target,
@@ -64,7 +63,7 @@ export function createContentScriptApiServer<T extends object>(
     if (request.payload) {
       const transformedArgs = request.payload.map((arg: any) => {
         if (typeof arg === "string" && arg.startsWith("__callback__|")) {
-          return createCallback(globalContext, arg, request.sandboxTabId);
+          return createCallback(arg, request.sandboxTabId);
         }
         return arg;
       });
@@ -152,7 +151,6 @@ function hydrateObjectReferenceArg(arg: any, objectStore: Map<string, any>) {
 
 function injectCallbackPropogationIntoPayload(
   payload: any,
-  globalContext: typeof globalThis,
   sandboxTabId: number
 ): any {
   for (const key in payload) {
@@ -162,7 +160,6 @@ function injectCallbackPropogationIntoPayload(
     ) {
       const callbackReference = payload[key];
       payload[key] = createCallback(
-        globalContext,
         callbackReference,
         sandboxTabId
       );
@@ -172,13 +169,13 @@ function injectCallbackPropogationIntoPayload(
 }
 
 function createCallback(
-  globalContext: typeof globalThis,
   callbackReference: string,
   sandboxTabId: number
 ) {
   const correlationId = generateUniqueId();
+  console.log("Creating callback", callbackReference, sandboxTabId, correlationId);
   return (...args: any[]) => {
-    globalContext.chrome.runtime.sendMessage({
+    const message = {
       callbackReference: callbackReference,
       sandboxTabId: sandboxTabId,
       messageType: "sandboxCallback",
@@ -193,7 +190,10 @@ function createCallback(
         }
         return arg;
       }),
-    });
+    };
+
+    console.log("Sending callback message", message);
+    return chrome.runtime.sendMessage(message);
   };
 }
 
