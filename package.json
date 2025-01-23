@@ -30,7 +30,7 @@
   "author": "Peter Maude",
   "license": "ISC",
   "devDependencies": {
-    "@types/chrome": "^0.0.268",
+    "@types/chrome": "^0.0.299",
     "@types/node": "^20.14.10"
   },
   "dependencies": {
