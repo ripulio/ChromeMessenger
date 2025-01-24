@@ -8,21 +8,17 @@ import {
 export type TransportType = "fromSandbox" | "fromContentScript";
 
 export function createServiceWorkerApiWrapperForContentScript<T>(): T {
-  const messageHandler = (
+  const messageHandler = async (
     functionPath: string[],
     ...args: any[]
   ): Promise<any> => {
-    return new Promise((resolve, reject) => {
-      const message = {
-        messageType: functionPath,
-        payload: args,
-      };
+    const message = {
+      messageType: functionPath,
+      payload: args,
+    };
 
-      console.log(`Sending message: ${JSON.stringify(message)}`);
-      chrome.runtime.sendMessage(message, (response) => {
-        response.error ? reject(response.error) : resolve(response.data);
-      });
-    });
+    console.log(`Sending message: ${JSON.stringify(message)}`);
+    return await chrome.runtime.sendMessage(message);
   };
   return createObjectWrapper<T>(messageHandler, []) as T;
 }
