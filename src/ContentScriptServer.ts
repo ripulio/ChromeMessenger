@@ -2,18 +2,63 @@ import { IterableResponse } from "./Messages/IterableResponse";
 import { ObjectReferenceResponse } from "./Messages/ObjectReferenceResponse";
 import { generateUniqueId } from "./TypeUtilities";
 
-export function createContentScriptApiServer<T extends object>(
-  contentScriptApi: T,
+async function createIframe(): Promise<MessagePort> {
+  // Create and configure the iframe
+  const iframe = document.createElement("iframe");
+  iframe.src = chrome.runtime.getURL("mainpage.html");
+
+  // Set iframe styles
+  Object.assign(iframe.style, {
+    position: "fixed",
+    top: "0",
+    right: "0",
+    width: "0",
+    height: "0",
+    border: "none",
+    zIndex: "2147483647", // Maximum z-index
+    background: "transparent",
+  });
+
+  const waitForBody = async () => {
+    if (document.body) return document.body;
+
+    return new Promise<HTMLElement>((resolve) => {
+      document.addEventListener("DOMContentLoaded", () => {
+        resolve(document.body);
+      });
+    });
+  };
+
+  const body = await waitForBody();
+  body.appendChild(iframe);
+
+  // Wait for iframe to load
+  await new Promise<void>((resolve) => {
+    iframe.onload = () => resolve();
+  });
+
+  const channel = new MessageChannel();
+
+  iframe?.contentWindow?.postMessage({init:'true'}, "*", [channel.port2]);
+
+  return channel.port1;
+}
+
+export async function createContentScriptApiServer<T extends object>(
+  apiFactory: (port: MessagePort) => T,
   globalContext: typeof globalThis
-): void {
-  chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+): Promise<void> {
+  const iframePort = await createIframe();
+  const sandboxMessageHandler = (ev: MessageEvent<any>) => {
+    const request = ev.data;
+
     const createAndSendResponse = (result: any) => {
       const response = createResponse(result, request.correlationId);
-      sendResponse(response);
+      iframePort.postMessage(response);
     };
 
+    console.log("Recieved message over port", ev);
     if (request.source === "sandbox") {
-      console.log("Recieved sandbox message", request);
       switch (request.messageType) {
         case "ProxyInvocation":
           const target = getTarget(request, globalContext);
@@ -25,7 +70,7 @@ export function createContentScriptApiServer<T extends object>(
               hydrateObjectReferenceArg(request.payload[1], objectStore)
             );
             createAndSendResponse(result);
-            return false;
+            return;
           }
 
           if (isAssignment(request.payload)) {
@@ -37,7 +82,7 @@ export function createContentScriptApiServer<T extends object>(
               request.functionPath
             );
             createAndSendResponse(result);
-            return false;
+            return;
           }
 
           executeFunctionCall(
@@ -57,28 +102,46 @@ export function createContentScriptApiServer<T extends object>(
             `Unhandled sandbox message type: ${request.messageType}`
           );
       }
-
-      return true;
     }
-
-    if (request.payload) {
-      const transformedArgs = request.payload.map((arg: any) => {
-        if (typeof arg === "string" && arg.startsWith("__callback__|")) {
-          return createCallback(globalContext, arg, request.sandboxTabId);
-        }
-        return arg;
-      });
-      request.payload = transformedArgs;
+    else{
+      console.error("Recieved non-sandboxed sourced message from sandbox, specify source and/or refactor this")
+      handleNonNativeCall(request, apiFactory(iframePort), globalContext, createAndSendResponse)
     }
-    // Handle non-proxy messages
-    executeFunctionCall(
-      request.functionPath,
-      request.payload,
-      contentScriptApi,
-      (result) => sendResponse(result)
+  };
+  iframePort.addEventListener("message", sandboxMessageHandler);
+
+  // for messages from the background?
+  chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+    console.log("recieved message from runtime")
+    handleNonNativeCall(
+      request,
+      apiFactory(iframePort),
+      globalContext,
+      sendResponse
     );
-    return true;
   });
+}
+
+function handleNonNativeCall(
+  request: any,
+  api: any,
+  globalContext: any,
+  sendResponse: (message: any) => void
+) {
+  if (request.payload) {
+    const transformedArgs = request.payload.map((arg: any) => {
+      if (typeof arg === "string" && arg.startsWith("__callback__|")) {
+        return createCallback(globalContext, arg, request.sandboxTabId);
+      }
+      return arg;
+    });
+    request.payload = transformedArgs;
+  }
+  // Handle non-proxy messages
+  executeFunctionCall(request.functionPath, request.payload, api, (result) =>
+    sendResponse(result)
+  );
+  return true;
 }
 
 const objectStore = new Map<string, any>();

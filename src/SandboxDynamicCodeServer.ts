@@ -13,14 +13,6 @@ export function createSandboxDynamicCodeServer(
 
   window.addEventListener("message", (event) => {
     console.log("Recieved message in sandboxed iframe", event.data);
-    // initialization message, set config
-    if (event.data?.messageType === "initializeConfig") {
-      console.error(
-        "initializeConfig iframe - if you see this message have a look there's some code to delete",
-        event.data
-      );
-      return;
-    }
 
     if (event.data.deserializeData) {
       event.data.data = JSON.parse(event.data.data);
