@@ -27,6 +27,7 @@ export function createObjectWrapperFactory<T>(
               [prop],
               callbackRegistry,
               port,
+              undefined,
               undefined
             );
           default:
@@ -34,6 +35,7 @@ export function createObjectWrapperFactory<T>(
               [prop],
               callbackRegistry,
               port,
+              undefined,
               undefined
             );
         }

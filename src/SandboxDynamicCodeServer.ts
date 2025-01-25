@@ -32,7 +32,8 @@ export function createSandboxDynamicCodeServer(
       if (event.data?.messageType === "sandboxCallback") {
         const result = executeCallback(
           event.data.callbackReference,
-          event.data.args
+          event.data.args,
+          port
         );
       }
 
@@ -61,6 +62,7 @@ export function createSandboxDynamicCodeServer(
         const returnValue = createObjectWrapperWithCallbackRegistry(
           [],
           callbackRegistry,
+          port,
           event.data.iteratorId,
           event.data.objectId,
           objectData
@@ -97,7 +99,7 @@ export function createSandboxDynamicCodeServer(
   window.addEventListener("message", initListener);
 }
 
-function executeCallback(callbackReference: string, args: any[]): any {
+function executeCallback(callbackReference: string, args: any[], port: MessagePort): any {
   const callbackRegistry = getCallbackRegistry();
   const callbackId = callbackReference.split("|")[1];
   const callback = callbackRegistry.get(callbackId);
@@ -108,6 +110,7 @@ function executeCallback(callbackReference: string, args: any[]): any {
         return createObjectWrapperWithCallbackRegistry(
           [],
           callbackRegistry,
+          port,
           arg.iteratorId,
           arg.objectId,
           arg.value
