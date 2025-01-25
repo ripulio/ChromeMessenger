@@ -1,15 +1,6 @@
 import { waitForResponse } from "./AsyncResponseDirectory";
 
-type Primitive = string | number | boolean | null | undefined;
 export type Function = (...args: any[]) => unknown;
-
-export type ApiWrapper<T> = {
-  [K in keyof T]: T[K] extends Function
-    ? (...args: Parameters<T[K]>) => ReturnType<T[K]>
-    : T[K] extends Primitive
-    ? T[K]
-    : ApiWrapper<T[K]>;
-};
 
 export type PromisifyNonPromiseMethods<T> = {
   [K in keyof T]: T[K] extends (...args: infer A) => infer R
