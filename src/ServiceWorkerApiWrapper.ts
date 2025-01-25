@@ -18,7 +18,7 @@ export function createServiceWorkerApiWrapperForContentScript<T>(): T {
     };
 
     console.log(`Sending message: ${JSON.stringify(message)}`);
-    return await chrome.runtime.sendMessage(message);
+    return (await chrome.runtime.sendMessage(message)).data;
   };
   return createObjectWrapper<T>(messageHandler, []) as T;
 }
