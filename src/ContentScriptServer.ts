@@ -2,18 +2,24 @@ import { IterableResponse } from "./Messages/IterableResponse";
 import { ObjectReferenceResponse } from "./Messages/ObjectReferenceResponse";
 import { generateUniqueId } from "./TypeUtilities";
 
-export function createContentScriptApiServer<T extends object>(
-  contentScriptApi: T,
+const objectStore = new Map<string, any>();
+let nextObjectId = 1;
+
+export async function createContentScriptApiServer<T extends object>(
+  apiFactory: (port: MessagePort) => T,
   globalContext: typeof globalThis
-): void {
-  chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+): Promise<void> {
+  const sandboxProxyPort = await getSandboxPort();
+  const sandboxMessageHandler = (ev: MessageEvent<any>) => {
+    const request = ev.data;
+
     const createAndSendResponse = (result: any) => {
       const response = createResponse(result, request.correlationId);
-      sendResponse(response);
+      sandboxProxyPort.postMessage(response);
     };
 
+    console.log("Recieved message over port", ev);
     if (request.source === "sandbox") {
-      console.log("Recieved sandbox message", request);
       switch (request.messageType) {
         case "ProxyInvocation":
           const target = getTarget(request, globalContext);
@@ -25,7 +31,7 @@ export function createContentScriptApiServer<T extends object>(
               hydrateObjectReferenceArg(request.payload[1], objectStore)
             );
             createAndSendResponse(result);
-            return false;
+            return;
           }
 
           if (isAssignment(request.payload)) {
@@ -37,15 +43,15 @@ export function createContentScriptApiServer<T extends object>(
               request.functionPath
             );
             createAndSendResponse(result);
-            return false;
+            return;
           }
 
           executeFunctionCall(
             request.functionPath,
             injectCallbackPropogationIntoPayload(
               hydrateStoredObjectReferences(request.payload, objectStore),
-              globalContext,
-              request.sandboxTabId
+              request.sandboxTabId,
+              sandboxProxyPort
             ),
             target,
             createAndSendResponse
@@ -57,32 +63,90 @@ export function createContentScriptApiServer<T extends object>(
             `Unhandled sandbox message type: ${request.messageType}`
           );
       }
-
-      return true;
     }
-
-    if (request.payload) {
-      const transformedArgs = request.payload.map((arg: any) => {
-        if (typeof arg === "string" && arg.startsWith("__callback__|")) {
-          return createCallback(globalContext, arg, request.sandboxTabId);
-        }
-        return arg;
-      });
-      request.payload = transformedArgs;
+    else{
+      console.error("Recieved non-sandboxed sourced message from sandbox, specify source and/or refactor this", request)
+      handleNonNativeCall(request, apiFactory(sandboxProxyPort), sandboxProxyPort, createAndSendResponse)
     }
-    // Handle non-proxy messages
-    executeFunctionCall(
-      request.functionPath,
-      request.payload,
-      contentScriptApi,
-      (result) => sendResponse(result)
+  };
+  sandboxProxyPort.addEventListener("message", sandboxMessageHandler);
+  sandboxProxyPort.start();
+
+  // for messages from the background?
+  chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+    console.log("Content script recieved message from runtime", request)
+    handleNonNativeCall(
+      request,
+      apiFactory(sandboxProxyPort),
+      sandboxProxyPort,
+      sendResponse
     );
-    return true;
   });
 }
 
-const objectStore = new Map<string, any>();
-let nextObjectId = 1;
+async function getSandboxPort(): Promise<MessagePort> {
+  // Create and configure the iframe
+  const iframe = document.createElement("iframe");
+  iframe.src = chrome.runtime.getURL("sandbox.html");
+
+  // Set iframe styles
+  Object.assign(iframe.style, {
+    position: "fixed",
+    top: "0",
+    right: "0",
+    width: "0",
+    height: "0",
+    border: "none",
+    zIndex: "2147483647", // Maximum z-index
+    background: "transparent",
+  });
+
+  const waitForBody = async () => {
+    if (document.body) return document.body;
+
+    return new Promise<HTMLElement>((resolve) => {
+      document.addEventListener("DOMContentLoaded", () => {
+        resolve(document.body);
+      });
+    });
+  };
+
+  const body = await waitForBody();
+  body.appendChild(iframe);
+
+  // Wait for iframe to load
+  await new Promise<void>((resolve) => {
+    iframe.onload = () => resolve();
+  });
+
+  const channel = new MessageChannel();
+
+  iframe?.contentWindow?.postMessage({messageType: "port_init"}, "*", [channel.port2]);
+
+  return channel.port1;
+}
+
+function handleNonNativeCall(
+  request: any,
+  api: any,
+  port: MessagePort,
+  sendResponse: (message: any) => void
+) {
+  if (request.payload) {
+    const transformedArgs = request.payload.map((arg: any) => {
+      if (typeof arg === "string" && arg.startsWith("__callback__|")) {
+        return createCallback(arg, request.sandboxTabId, port);
+      }
+      return arg;
+    });
+    request.payload = transformedArgs;
+  }
+  // Handle non-proxy messages
+  executeFunctionCall(request.functionPath, request.payload, api, (result) =>
+    sendResponse(result)
+  );
+  return true;
+}
 
 function getTarget(request: any, globalContext: typeof globalThis) {
   return request.objectId === undefined
@@ -152,8 +216,8 @@ function hydrateObjectReferenceArg(arg: any, objectStore: Map<string, any>) {
 
 function injectCallbackPropogationIntoPayload(
   payload: any,
-  globalContext: typeof globalThis,
-  sandboxTabId: number
+  sandboxTabId: number,
+  port: MessagePort
 ): any {
   for (const key in payload) {
     if (
@@ -162,9 +226,9 @@ function injectCallbackPropogationIntoPayload(
     ) {
       const callbackReference = payload[key];
       payload[key] = createCallback(
-        globalContext,
         callbackReference,
-        sandboxTabId
+        sandboxTabId,
+        port
       );
     }
   }
@@ -172,13 +236,13 @@ function injectCallbackPropogationIntoPayload(
 }
 
 function createCallback(
-  globalContext: typeof globalThis,
   callbackReference: string,
-  sandboxTabId: number
+  sandboxTabId: number,
+  port: MessagePort
 ) {
   const correlationId = generateUniqueId();
   return (...args: any[]) => {
-    globalContext.chrome.runtime.sendMessage({
+    port.postMessage({
       callbackReference: callbackReference,
       sandboxTabId: sandboxTabId,
       messageType: "sandboxCallback",
@@ -498,7 +562,6 @@ function hasPrototype(obj: any): boolean {
 }
 
 const nullTarget = { value: null };
-
 function storeObjectReference(obj: any) {
   if (obj === undefined || obj === null) {
     objectStore.set("null", nullTarget);

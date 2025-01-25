@@ -6,83 +6,100 @@ import {
 import { resolveResponse } from "./AsyncResponseDirectory";
 
 export function createSandboxDynamicCodeServer(
-  handler: (message: MessageEvent, proxies: Window & typeof globalThis) => void
+  handler: (message: MessageEvent, proxies: Window & typeof globalThis, port: MessagePort) => void
 ) {
-  const callbackRegistry = getCallbackRegistry();
-  const referenceState = window as Window & typeof globalThis;
-
-  window.addEventListener("message", (event) => {
+  const initListener = (event: MessageEvent) => {
     console.log("Recieved message in sandboxed iframe", event.data);
-    // initialization message, set config
-    if (event.data?.messageType === "initializeConfig") {
-      console.error(
-        "initializeConfig iframe - if you see this message have a look there's some code to delete",
-        event.data
-      );
+    if (event.data.messageType !== "port_init") {
       return;
     }
 
-    if (event.data.deserializeData) {
-      event.data.data = JSON.parse(event.data.data);
-    }
-    // callback from content script, execute against
-    // callback registry
-    if (event.data?.messageType === "sandboxCallback") {
-      const result = executeCallback(event.data.callbackReference, event.data.args);
-    }
+    console.log("Recieved port_init message in sandboxed iframe", event.data);
 
-    if (event.data?.messageType === "objectReferenceResponse") {
-      const correlationId = event.data.correlationId;
+    window.removeEventListener("message", initListener);
 
-      const objectData =
-        event.data.deserializeData && typeof event.data.data === "string"
-          ? JSON.parse(event.data.data)
-          : event.data.data;
+    const callbackRegistry = getCallbackRegistry();
+    const referenceState = window as Window & typeof globalThis;
 
-      if (objectData === undefined || objectData === null) {
-        resolveResponse(correlationId, undefined, event.data);
-        return;
+    const port = event.ports[0];
+    port.addEventListener("message", (event) => {
+      console.log("Recieved message in sandboxed iframe", event.data);
+      if (event.data.deserializeData) {
+        event.data.data = JSON.parse(event.data.data);
       }
-      if (objectData.error) {
-        resolveResponse(correlationId, undefined, event.data, objectData.error);
-        return;
-      }
-
-      const returnValue = createObjectWrapperWithCallbackRegistry(
-        [],
-        callbackRegistry,
-        event.data.iteratorId,
-        event.data.objectId,
-        objectData
-      );
-      resolveResponse(correlationId, returnValue, event.data);
-      return;
-    }
-
-    if (event.data.correlationId) {
-      if (event.data.error) {
-        resolveResponse(
-          event.data.correlationId,
-          null,
-          event.data,
-          event.data.error
+      // callback from content script, execute against
+      // callback registry
+      if (event.data?.messageType === "sandboxCallback") {
+        const result = executeCallback(
+          event.data.callbackReference,
+          event.data.args,
+          port
         );
       }
-      resolveResponse(event.data.correlationId, null, event.data);
-      return;
-    }
 
-    // unknown function call, allow handling by consumer
-    const proxies = createObjectWrapperFactory<Window & typeof globalThis>(
-      callbackRegistry,
-      referenceState
-    );
+      if (event.data?.messageType === "objectReferenceResponse") {
+        const correlationId = event.data.correlationId;
 
-    handler(event, proxies);
-  });
+        const objectData =
+          event.data.deserializeData && typeof event.data.data === "string"
+            ? JSON.parse(event.data.data)
+            : event.data.data;
+
+        if (objectData === undefined || objectData === null) {
+          resolveResponse(correlationId, undefined, event.data);
+          return;
+        }
+        if (objectData.error) {
+          resolveResponse(
+            correlationId,
+            undefined,
+            event.data,
+            objectData.error
+          );
+          return;
+        }
+
+        const returnValue = createObjectWrapperWithCallbackRegistry(
+          [],
+          callbackRegistry,
+          port,
+          event.data.iteratorId,
+          event.data.objectId,
+          objectData
+        );
+        resolveResponse(correlationId, returnValue, event.data);
+        return;
+      }
+
+      if (event.data.correlationId) {
+        if (event.data.error) {
+          resolveResponse(
+            event.data.correlationId,
+            null,
+            event.data,
+            event.data.error
+          );
+        }
+        resolveResponse(event.data.correlationId, null, event.data);
+        return;
+      }
+
+      // unknown function call, allow handling by consumer
+      const proxies = createObjectWrapperFactory<Window & typeof globalThis>(
+        callbackRegistry,
+        referenceState,
+        port
+      );
+
+      handler(event, proxies, port);
+    });
+    port.start();
+  };
+
+  window.addEventListener("message", initListener);
 }
 
-function executeCallback(callbackReference: string, args: any[]): any {
+function executeCallback(callbackReference: string, args: any[], port: MessagePort): any {
   const callbackRegistry = getCallbackRegistry();
   const callbackId = callbackReference.split("|")[1];
   const callback = callbackRegistry.get(callbackId);
@@ -93,6 +110,7 @@ function executeCallback(callbackReference: string, args: any[]): any {
         return createObjectWrapperWithCallbackRegistry(
           [],
           callbackRegistry,
+          port,
           arg.iteratorId,
           arg.objectId,
           arg.value
@@ -116,4 +134,3 @@ function executeCallback(callbackReference: string, args: any[]): any {
   }
   throw new Error(`Callback ${callbackReference} not found`);
 }
-
