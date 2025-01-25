@@ -50,8 +50,8 @@ export async function createContentScriptApiServer<T extends object>(
             request.functionPath,
             injectCallbackPropogationIntoPayload(
               hydrateStoredObjectReferences(request.payload, objectStore),
-              globalContext,
-              request.sandboxTabId
+              request.sandboxTabId,
+              sandboxProxyPort
             ),
             target,
             createAndSendResponse
@@ -66,7 +66,7 @@ export async function createContentScriptApiServer<T extends object>(
     }
     else{
       console.error("Recieved non-sandboxed sourced message from sandbox, specify source and/or refactor this", request)
-      handleNonNativeCall(request, apiFactory(sandboxProxyPort), globalContext, createAndSendResponse)
+      handleNonNativeCall(request, apiFactory(sandboxProxyPort), sandboxProxyPort, createAndSendResponse)
     }
   };
   sandboxProxyPort.addEventListener("message", sandboxMessageHandler);
@@ -74,11 +74,11 @@ export async function createContentScriptApiServer<T extends object>(
 
   // for messages from the background?
   chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-    console.log("recieved message from runtime")
+    console.log("Content script recieved message from runtime", request)
     handleNonNativeCall(
       request,
       apiFactory(sandboxProxyPort),
-      globalContext,
+      sandboxProxyPort,
       sendResponse
     );
   });
@@ -129,13 +129,13 @@ async function getSandboxPort(): Promise<MessagePort> {
 function handleNonNativeCall(
   request: any,
   api: any,
-  globalContext: any,
+  port: MessagePort,
   sendResponse: (message: any) => void
 ) {
   if (request.payload) {
     const transformedArgs = request.payload.map((arg: any) => {
       if (typeof arg === "string" && arg.startsWith("__callback__|")) {
-        return createCallback(globalContext, arg, request.sandboxTabId);
+        return createCallback(arg, request.sandboxTabId, port);
       }
       return arg;
     });
@@ -216,8 +216,8 @@ function hydrateObjectReferenceArg(arg: any, objectStore: Map<string, any>) {
 
 function injectCallbackPropogationIntoPayload(
   payload: any,
-  globalContext: typeof globalThis,
-  sandboxTabId: number
+  sandboxTabId: number,
+  port: MessagePort
 ): any {
   for (const key in payload) {
     if (
@@ -226,9 +226,9 @@ function injectCallbackPropogationIntoPayload(
     ) {
       const callbackReference = payload[key];
       payload[key] = createCallback(
-        globalContext,
         callbackReference,
-        sandboxTabId
+        sandboxTabId,
+        port
       );
     }
   }
@@ -236,13 +236,13 @@ function injectCallbackPropogationIntoPayload(
 }
 
 function createCallback(
-  globalContext: typeof globalThis,
   callbackReference: string,
-  sandboxTabId: number
+  sandboxTabId: number,
+  port: MessagePort
 ) {
   const correlationId = generateUniqueId();
   return (...args: any[]) => {
-    globalContext.chrome.runtime.sendMessage({
+    port.postMessage({
       callbackReference: callbackReference,
       sandboxTabId: sandboxTabId,
       messageType: "sandboxCallback",
