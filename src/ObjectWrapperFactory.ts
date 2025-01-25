@@ -6,7 +6,8 @@ import { Function } from "./TypeUtilities";
 
 export function createObjectWrapperFactory<T>(
   callbackRegistry: Map<string, Function>,
-  referenceState: T
+  referenceState: T,
+  port: MessagePort
 ): T {
   const handler = {
     get(target: any, prop: string, receiver: any) {
@@ -18,18 +19,21 @@ export function createObjectWrapperFactory<T>(
             return createFunctionWrapperWithCallbackRegistry(
               [],
               prop as keyof T,
-              callbackRegistry
+              callbackRegistry,
+              port
             );
           case "object":
             return createObjectWrapperWithCallbackRegistry(
               [prop],
               callbackRegistry,
+              port,
               undefined
             );
           default:
             return createObjectWrapperWithCallbackRegistry(
               [prop],
               callbackRegistry,
+              port,
               undefined
             );
         }

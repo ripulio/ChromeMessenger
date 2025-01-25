@@ -2,59 +2,20 @@ import { IterableResponse } from "./Messages/IterableResponse";
 import { ObjectReferenceResponse } from "./Messages/ObjectReferenceResponse";
 import { generateUniqueId } from "./TypeUtilities";
 
-async function createIframe(): Promise<MessagePort> {
-  // Create and configure the iframe
-  const iframe = document.createElement("iframe");
-  iframe.src = chrome.runtime.getURL("mainpage.html");
-
-  // Set iframe styles
-  Object.assign(iframe.style, {
-    position: "fixed",
-    top: "0",
-    right: "0",
-    width: "0",
-    height: "0",
-    border: "none",
-    zIndex: "2147483647", // Maximum z-index
-    background: "transparent",
-  });
-
-  const waitForBody = async () => {
-    if (document.body) return document.body;
-
-    return new Promise<HTMLElement>((resolve) => {
-      document.addEventListener("DOMContentLoaded", () => {
-        resolve(document.body);
-      });
-    });
-  };
-
-  const body = await waitForBody();
-  body.appendChild(iframe);
-
-  // Wait for iframe to load
-  await new Promise<void>((resolve) => {
-    iframe.onload = () => resolve();
-  });
-
-  const channel = new MessageChannel();
-
-  iframe?.contentWindow?.postMessage({init:'true'}, "*", [channel.port2]);
-
-  return channel.port1;
-}
+const objectStore = new Map<string, any>();
+let nextObjectId = 1;
 
 export async function createContentScriptApiServer<T extends object>(
   apiFactory: (port: MessagePort) => T,
   globalContext: typeof globalThis
 ): Promise<void> {
-  const iframePort = await createIframe();
+  const sandboxProxyPort = await getSandboxPort();
   const sandboxMessageHandler = (ev: MessageEvent<any>) => {
     const request = ev.data;
 
     const createAndSendResponse = (result: any) => {
       const response = createResponse(result, request.correlationId);
-      iframePort.postMessage(response);
+      sandboxProxyPort.postMessage(response);
     };
 
     console.log("Recieved message over port", ev);
@@ -104,22 +65,65 @@ export async function createContentScriptApiServer<T extends object>(
       }
     }
     else{
-      console.error("Recieved non-sandboxed sourced message from sandbox, specify source and/or refactor this")
-      handleNonNativeCall(request, apiFactory(iframePort), globalContext, createAndSendResponse)
+      console.error("Recieved non-sandboxed sourced message from sandbox, specify source and/or refactor this", request)
+      handleNonNativeCall(request, apiFactory(sandboxProxyPort), globalContext, createAndSendResponse)
     }
   };
-  iframePort.addEventListener("message", sandboxMessageHandler);
+  sandboxProxyPort.addEventListener("message", sandboxMessageHandler);
+  sandboxProxyPort.start();
 
   // for messages from the background?
   chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     console.log("recieved message from runtime")
     handleNonNativeCall(
       request,
-      apiFactory(iframePort),
+      apiFactory(sandboxProxyPort),
       globalContext,
       sendResponse
     );
   });
+}
+
+async function getSandboxPort(): Promise<MessagePort> {
+  // Create and configure the iframe
+  const iframe = document.createElement("iframe");
+  iframe.src = chrome.runtime.getURL("sandbox.html");
+
+  // Set iframe styles
+  Object.assign(iframe.style, {
+    position: "fixed",
+    top: "0",
+    right: "0",
+    width: "0",
+    height: "0",
+    border: "none",
+    zIndex: "2147483647", // Maximum z-index
+    background: "transparent",
+  });
+
+  const waitForBody = async () => {
+    if (document.body) return document.body;
+
+    return new Promise<HTMLElement>((resolve) => {
+      document.addEventListener("DOMContentLoaded", () => {
+        resolve(document.body);
+      });
+    });
+  };
+
+  const body = await waitForBody();
+  body.appendChild(iframe);
+
+  // Wait for iframe to load
+  await new Promise<void>((resolve) => {
+    iframe.onload = () => resolve();
+  });
+
+  const channel = new MessageChannel();
+
+  iframe?.contentWindow?.postMessage({messageType: "port_init"}, "*", [channel.port2]);
+
+  return channel.port1;
 }
 
 function handleNonNativeCall(
@@ -143,9 +147,6 @@ function handleNonNativeCall(
   );
   return true;
 }
-
-const objectStore = new Map<string, any>();
-let nextObjectId = 1;
 
 function getTarget(request: any, globalContext: typeof globalThis) {
   return request.objectId === undefined
@@ -561,7 +562,6 @@ function hasPrototype(obj: any): boolean {
 }
 
 const nullTarget = { value: null };
-
 function storeObjectReference(obj: any) {
   if (obj === undefined || obj === null) {
     objectStore.set("null", nullTarget);

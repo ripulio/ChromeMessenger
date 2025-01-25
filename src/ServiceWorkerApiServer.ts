@@ -3,41 +3,18 @@
 export function createServiceWorkerApiServer<T extends object>(
   serviceWorkerApi: T
 ): { stop: () => void } {
-  // Store the listener function in a variable
   const messageListener = (request: any, sender: chrome.runtime.MessageSender, sendResponse: (response?: any) => void) => {
     console.log(
       "Service worker message received in backgroundApiServer",
       request
     );
     if (request.messageType == "sandboxCallback") {
-      // send message to sandbox iframe
-      const tabId = request.sandboxTabId;
-      const callbackReference = request.callbackReference;
-
-      chrome.tabs.sendMessage(
-        tabId,
-        {
-          callbackReference: callbackReference,
-          sandboxTabId: tabId,
-        },
-        (response) => {
-          console.log("sandboxCallback response", response);
-        }
-      );
-
+      console.error("Recieved non-sandboxed sourced message from sandbox, specify source and/or refactor this", request);
       return true;
     }
 
-    // MessageType: "ProxyInvocation"
     if (request.source === "sandbox") {
-      const destinationTab = request.contentScriptTabId;
-      // forward to content script for active page
-      chrome.tabs.sendMessage(destinationTab, request, (response) => {
-        console.log("Invocation response", response);
-        console.log("For request", request);
-        sendResponse(response);
-      });
-      // return here or wait for the response to propogate?
+      console.error("Recieved non-sandboxed sourced message from sandbox, specify source and/or refactor this", request)
       return true;
     }
 

@@ -5,6 +5,9 @@ export function createSandboxProxyServer(iframeId: string) {
   // proxies messages from service worker to sandbox
 
   const initContentScriptPortListener = (ev: MessageEvent<any>) => {
+    if (ev.data.messageType !== "port_init") {
+      return;
+    }
     window.removeEventListener("message", initContentScriptPortListener);
 
     const message = ev.data;
@@ -16,35 +19,29 @@ export function createSandboxProxyServer(iframeId: string) {
     }
 
     const contentScriptPort = ev.ports[0];
-    contentScriptPort.postMessage({ message: "Iframe channel ready" });
+
+    // initialize sandbox communication channel
+    const sandboxChannel = new MessageChannel();
+    const sandboxPort = sandboxChannel.port1;
+    sandboxPort.onmessage = (ev) => {
+      console.log("Received message from sandbox", ev.data);
+      // forward all messages to content script
+      contentScriptPort.postMessage({...ev.data});
+      // wait for response
+    };
+
+    // send init message to sandbox
+    sandboxWindow.postMessage({ messageType: "port_init" }, "*", [sandboxChannel.port2]);
+    sandboxChannel.port2.start();
 
     // register listener for incoming messages
     // forward all messages to sandbox
     contentScriptPort.onmessage = (ev) => {
-      sandboxWindow.postMessage(ev.data, "*", [contentScriptPort]);
+      sandboxPort.postMessage(ev.data);
     };
-
-    sandboxWindow.postMessage({ messageType: "init" });
-
-    // register listener for outgoing messages
-    // forward all messages to content script
-    registerSendboxOutgoingMessageProxy(sandboxWindow);
-    //remove this init event listener
   };
 
   window.addEventListener("message", initContentScriptPortListener);
-}
-
-function registerSendboxOutgoingMessageProxy(
-  sandboxWindow: Window
-) {
-  // listen to messages hitting this window, should always be from sandbox
-  window.addEventListener("message", async (event) => {
-    console.error("Message recieved from sandbox, but source is not sandbox", event);
-    const result = await chrome.runtime.sendMessage(event.data);
-    console.error("Response recieved from runtime, forwarding to sandbox iframe.", result);
-    sandboxWindow.postMessage({...result}, "*");
-  });
 }
 
 function getSandboxWindow(iframeId: string) {

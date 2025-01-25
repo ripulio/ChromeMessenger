@@ -18,12 +18,12 @@ export function createServiceWorkerApiWrapperForContentScript<T>(): T {
     };
 
     console.log(`Sending message: ${JSON.stringify(message)}`);
-    return await chrome.runtime.sendMessage(message);
+    return (await chrome.runtime.sendMessage(message)).data;
   };
   return createObjectWrapper<T>(messageHandler, []) as T;
 }
 
-export function createServiceWorkerApiWrapperForSandbox<T>(): T {
+export function createServiceWorkerApiWrapperForSandbox<T>(port: MessagePort): T {
   const messageHandler = (
     functionPath: string[],
     ...args: any[]
@@ -37,11 +37,12 @@ export function createServiceWorkerApiWrapperForSandbox<T>(): T {
       );
 
       const message = {
-        messageType: functionPath,
+        messageType: "ContentScriptApiInvocation",
+        functionPath: functionPath,
         payload: transformedArgs,
         correlationId: correlationId,
       };
-      window.parent.postMessage(message, "*");
+      port.postMessage(message);
 
       return waitForResponse(correlationId).then((response) => {
         resolve(

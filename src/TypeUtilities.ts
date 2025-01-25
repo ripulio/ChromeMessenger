@@ -27,6 +27,7 @@ export function getCallbackRegistry(): Map<string, Function> {
 export function createObjectWrapperWithCallbackRegistry<T>(
   path: string[],
   callbackRegistry: Map<string, Function>,
+  port: MessagePort,
   iteratorId?: string,
   objectId?: string,
   data?: any
@@ -38,7 +39,7 @@ export function createObjectWrapperWithCallbackRegistry<T>(
       }
       if (typeof prop === "symbol") {
         if (prop === Symbol.iterator || prop === Symbol.asyncIterator) {
-          return handleAsyncIteration(iteratorId);
+          return handleAsyncIteration(iteratorId, port);
         }
         if (prop === Symbol.toStringTag) {
           console.error("toStringTag called directly on object in get trap");
@@ -79,7 +80,8 @@ export function createObjectWrapperWithCallbackRegistry<T>(
         (prop === "done" || prop === "next") && iteratorId
           ? iteratorId
           : objectId,
-        data
+        data,
+        port
       );
     },
     apply(target: any, thisArg: any, args: any[]) {
@@ -109,7 +111,8 @@ export function createObjectWrapperWithCallbackRegistry<T>(
 export function createFunctionWrapperWithCallbackRegistry<T>(
   functionPath: string[],
   node: keyof T,
-  callbackRegistry: Map<string, Function>
+  callbackRegistry: Map<string, Function>,
+  port: MessagePort
 ): Function {
   const handler = {
     apply(target: any, thisArg: any, args: any[]) {
@@ -122,6 +125,7 @@ export function createFunctionWrapperWithCallbackRegistry<T>(
         functionPath,
         node,
         undefined,
+        port,
         ...wrappedArgs
       );
     },
@@ -152,12 +156,13 @@ function createFunctionProxy(
   path: string[],
   callbackRegistry: Map<string, Function>,
   objectId: string | undefined,
-  data: any
+  data: any,
+  port: MessagePort 
 ) {
   return new Proxy(function () {}, {
     apply(target: any, thisArg: any, args: any[]) {
       if (typeof prop === "symbol" && prop === Symbol.asyncIterator) {
-        return handleAsyncIteration(objectId);
+        return handleAsyncIteration(objectId, port);
       }
 
       if (typeof prop === "symbol" && prop === Symbol.iterator) {
@@ -182,7 +187,7 @@ function createFunctionProxy(
         transformArg(arg, callbackRegistry)
       );
 
-      return functionInvocationHandler(path, prop, objectId, ...wrappedArgs);
+      return functionInvocationHandler(path, prop, objectId, port, ...wrappedArgs);
     },
     get(target: any, prop: any) {
       if (propIsProxy(prop)) {
@@ -202,7 +207,7 @@ function isProxy(obj: any): string | undefined {
   return obj && obj[IS_PROXY];
 }
 
-function handleAsyncIteration(objectId: string | undefined) {
+function handleAsyncIteration(objectId: string | undefined, port: MessagePort) {
   return async function* () {
     const getNext = async () => {
       const correlationId = generateUniqueId();
@@ -216,7 +221,7 @@ function handleAsyncIteration(objectId: string | undefined) {
         destination: "content",
       };
 
-      window.parent.postMessage(message, "*");
+      port.postMessage(message);
 
       const { proxy, raw } = await waitForResponse<any>(correlationId);
 
@@ -244,6 +249,7 @@ async function functionInvocationHandler<T>(
   functionPath: string[],
   prop: any,
   objectId: string | undefined,
+  port: MessagePort,
   ...args: any[]
 ): Promise<T[keyof T]> {
   if (prop === "then") {
@@ -275,7 +281,7 @@ async function functionInvocationHandler<T>(
 
   console.log(`Sending message: ${JSON.stringify(message)}`);
   try {
-    window.parent.postMessage(message, "*");
+    port.postMessage(message);
   } catch (e) {
     console.error("Error sending message", e);
   }
