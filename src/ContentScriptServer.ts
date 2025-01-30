@@ -315,7 +315,7 @@ function argumentIsEvent(argument: any): boolean {
 
 function getEventConstructorByName(name: string): EventConstructor | null {
   try {
-    const constructor = (window as any)[name];
+    const constructor = (globalThis as any)[name];
     return isEventConstructor(constructor) ? constructor : null;
   } catch {
     return null;
@@ -327,22 +327,7 @@ function argumentToEvent(argument: any): Event | null {
     return null;
   }
 
-  try {
-    const { eventType, type, ...eventInit } = argument;
-    const constructor = getEventConstructorByName(eventType);
-    if (!constructor) {
-      console.warn(`Failed to get event constructor for ${argument.eventType}`);
-      return null;
-    }
-    const hydratedEventInit = hydrateStoredObjectReferences(
-      eventInit,
-      objectStore
-    );
-    return createTypedEvent(constructor, hydratedEventInit, type);
-  } catch (error) {
-    console.warn(`Failed to create event:`, error);
-    return null;
-  }
+  return new CustomEvent(argument.eventType, {...argument})
 }
 
 type EventConstructor = {
