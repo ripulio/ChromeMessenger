@@ -1,3 +1,4 @@
+import { waitForResponse } from "./AsyncResponseDirectory";
 import { IterableResponse } from "./Messages/IterableResponse";
 import { ObjectReferenceResponse } from "./Messages/ObjectReferenceResponse";
 import { generateUniqueId } from "./TypeUtilities";
@@ -241,7 +242,7 @@ function createCallback(
   port: MessagePort
 ) {
   const correlationId = generateUniqueId();
-  return (...args: any[]) => {
+  return async (...args: any[]) => {
     port.postMessage({
       callbackReference: callbackReference,
       sandboxTabId: sandboxTabId,
@@ -258,6 +259,8 @@ function createCallback(
         return arg;
       }),
     });
+    const result = await waitForResponse<any>(correlationId);
+    return result.proxy;
   };
 }
 
