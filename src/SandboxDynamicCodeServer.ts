@@ -22,7 +22,7 @@ export function createSandboxDynamicCodeServer(
     const referenceState = window as Window & typeof globalThis;
 
     const port = event.ports[0];
-    port.addEventListener("message", (event) => {
+    port.addEventListener("message", async (event) => {
       console.log("Recieved message in sandboxed iframe", event.data);
       if (event.data.deserializeData) {
         event.data.data = JSON.parse(event.data.data);
@@ -30,11 +30,33 @@ export function createSandboxDynamicCodeServer(
       // callback from content script, execute against
       // callback registry
       if (event.data?.messageType === "sandboxCallback") {
-        const result = executeCallback(
-          event.data.callbackReference,
-          event.data.args,
-          port
-        );
+        console.log("Executing callback", event.data.callbackReference, event.data.args);
+        const baseMessage = {
+          messageType: "sandboxCallbackResponse",
+          correlationId: event.data.correlationId,
+          source: "sandbox"
+        }
+        try{
+          const result = await executeCallback(
+            event.data.callbackReference,
+            event.data.args,
+            port
+          );
+          console.log("Callback result", result);
+          // send result back with same correlation id
+          port.postMessage({
+            ...baseMessage,
+            data: result,
+          });
+          return;
+        }
+        catch(error: any){
+          console.error("Error executing callback", error);
+          port.postMessage({
+            ...baseMessage,
+            error: error.message,
+          });
+        }
       }
 
       if (event.data?.messageType === "objectReferenceResponse") {
@@ -99,7 +121,7 @@ export function createSandboxDynamicCodeServer(
   window.addEventListener("message", initListener);
 }
 
-function executeCallback(callbackReference: string, args: any[], port: MessagePort): any {
+async function executeCallback(callbackReference: string, args: any[], port: MessagePort): Promise<any> {
   const callbackRegistry = getCallbackRegistry();
   const callbackId = callbackReference.split("|")[1];
   const callback = callbackRegistry.get(callbackId);
@@ -118,7 +140,7 @@ function executeCallback(callbackReference: string, args: any[], port: MessagePo
       }
       return arg;
     });
-    const result = callback(...deserializedArgs);
+    const result = await callback(...deserializedArgs);
     if (!result) {
       return;
     }

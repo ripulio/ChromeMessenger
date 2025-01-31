@@ -1,4 +1,4 @@
-import { waitForResponse } from "./AsyncResponseDirectory";
+import { resolveResponse, waitForResponse } from "./AsyncResponseDirectory";
 import { IterableResponse } from "./Messages/IterableResponse";
 import { ObjectReferenceResponse } from "./Messages/ObjectReferenceResponse";
 import { generateUniqueId } from "./TypeUtilities";
@@ -57,6 +57,10 @@ export async function createContentScriptApiServer<T extends object>(
             target,
             createAndSendResponse
           );
+          break;
+
+        case "sandboxCallbackResponse":
+          resolveResponse(request.correlationId, undefined, request.data, request.error);
           break;
 
         default:
