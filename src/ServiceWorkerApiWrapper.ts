@@ -45,12 +45,7 @@ export function createServiceWorkerApiWrapperForSandbox<T>(port: MessagePort): T
       port.postMessage(message);
 
       return waitForResponse(correlationId).then((response) => {
-        console.log(`Received response: ${JSON.stringify(response)}`);
-        resolve(
-          response.raw.deserializeData
-            ? JSON.parse(response.raw.data)
-            : response.raw.data
-        );
+        resolve(response.raw.data);
       });
     });
   };
