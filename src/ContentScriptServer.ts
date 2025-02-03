@@ -322,7 +322,7 @@ function argumentIsEvent(argument: any): boolean {
 
 function getEventConstructorByName(name: string): EventConstructor | null {
   try {
-    const constructor = (globalThis as any)[name];
+    const constructor = (window as any)[name];
     return isEventConstructor(constructor) ? constructor : null;
   } catch {
     return null;
@@ -348,7 +348,7 @@ type EventConstructor = {
 };
 
 function isEventConstructor(value: any): value is EventConstructor {
-  return typeof value === "function" && value.prototype instanceof Event;
+  return typeof value === "function";
 }
 
 function createTypedEvent(
