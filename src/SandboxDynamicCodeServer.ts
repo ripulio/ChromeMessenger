@@ -4,9 +4,21 @@ import {
   createObjectWrapperWithCallbackRegistry,
 } from "./TypeUtilities";
 import { resolveResponse } from "./AsyncResponseDirectory";
+import { createServiceWorkerApiWrapperForSandbox } from "./ServiceWorkerApiWrapper";
 
-export function createSandboxDynamicCodeServer(
-  handler: (message: MessageEvent, proxies: Window & typeof globalThis, port: MessagePort) => void
+export function createSandboxDynamicCodeServer<
+  TContentScriptApi extends {
+    transpile(code: string, extraArgs: string[]): Promise<string>;
+  } & Record<string, any>
+>(
+  handler: (
+    message: MessageEvent,
+    createFunction: (
+      code: string,
+      extraArgs: { [key: string]: any }
+    ) => Promise<Function>,
+    sandboxApi: TContentScriptApi
+  ) => void
 ) {
   const initListener = (event: MessageEvent) => {
     console.log("Recieved message in sandboxed iframe", event.data);
@@ -30,13 +42,17 @@ export function createSandboxDynamicCodeServer(
       // callback from content script, execute against
       // callback registry
       if (event.data?.messageType === "sandboxCallback") {
-        console.log("Executing callback", event.data.callbackReference, event.data.args);
+        console.log(
+          "Executing callback",
+          event.data.callbackReference,
+          event.data.args
+        );
         const baseMessage = {
           messageType: "sandboxCallbackResponse",
           correlationId: event.data.correlationId,
-          source: "sandbox"
-        }
-        try{
+          source: "sandbox",
+        };
+        try {
           const result = await executeCallback(
             event.data.callbackReference,
             event.data.args,
@@ -49,8 +65,7 @@ export function createSandboxDynamicCodeServer(
             data: result,
           });
           return;
-        }
-        catch(error: any){
+        } catch (error: any) {
           console.error("Error executing callback", error);
           port.postMessage({
             ...baseMessage,
@@ -113,7 +128,64 @@ export function createSandboxDynamicCodeServer(
         port
       );
 
-      handler(event, proxies, port);
+      const asyncIterate = async (iterable: AsyncIterable<any>) => {
+        if (iterable === undefined) {
+          return undefined;
+        }
+        const result: any[] = [];
+        for await (const item of iterable) {
+          result.push(item);
+        }
+        return result;
+      };
+
+      const configureFunction = async (
+        code: string,
+        runtimeArguments: { [key: string]: any }
+      ) => {
+        const runDynamicCode = async (
+          runtimeCode: string,
+        ) => {
+          // transpile code
+          const extraArgKeys = Object.keys(runtimeArguments);
+          const transpiledCode = await contentScriptApi.transpile(
+            runtimeCode,
+            extraArgKeys
+          );
+
+          // get all parameter names for function execution
+          const globalThisKeys = Object.keys(globalThis);
+          const allArgNames = [
+            ...globalThisKeys,
+            ...extraArgKeys,
+            "asyncIterate",
+            "__newFunction",
+          ];
+
+          // get all associated objects for parameter names
+          const proxyObjects = globalThisKeys.map((key) => {
+            if (["caches", "sessionStorage", "localStorage"].includes(key)) {
+              return {};
+            }
+            return (proxies as any)[key];
+          });
+          const extraArgValues = Object.values(runtimeArguments);
+          const args = [
+            ...proxyObjects,
+            ...extraArgValues,
+            asyncIterate,
+            runDynamicCode,
+          ];
+
+          return () => new Function(...allArgNames, transpiledCode)(...args);
+        };
+
+        return runDynamicCode(code);
+      };
+
+      const contentScriptApi =
+        createServiceWorkerApiWrapperForSandbox<TContentScriptApi>(port);
+      handler(event, configureFunction, contentScriptApi);
     });
     port.start();
   };
@@ -121,7 +193,11 @@ export function createSandboxDynamicCodeServer(
   window.addEventListener("message", initListener);
 }
 
-async function executeCallback(callbackReference: string, args: any[], port: MessagePort): Promise<any> {
+async function executeCallback(
+  callbackReference: string,
+  args: any[],
+  port: MessagePort
+): Promise<any> {
   const callbackRegistry = getCallbackRegistry();
   const callbackId = callbackReference.split("|")[1];
   const callback = callbackRegistry.get(callbackId);
