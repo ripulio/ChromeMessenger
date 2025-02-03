@@ -333,8 +333,13 @@ function argumentToEvent(argument: any): Event | null {
   if (!argumentIsEvent(argument)) {
     return null;
   }
+  const eventConstructor = getEventConstructorByName(argument.eventType);
+  if (!eventConstructor) {
+    console.error(`Unknown event type: ${argument.eventType}`);
+    return null;
+  }
 
-  return new CustomEvent(argument.eventType, {...argument})
+  return new eventConstructor(argument.type, {...argument})
 }
 
 type EventConstructor = {
