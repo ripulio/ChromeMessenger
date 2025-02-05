@@ -11,6 +11,7 @@ export async function createContentScriptApiServer<T extends object>(
   globalContext: typeof globalThis
 ): Promise<void> {
   const sandboxProxyPort = await getSandboxPort();
+  const api = apiFactory(sandboxProxyPort);
   const sandboxMessageHandler = (ev: MessageEvent<any>) => {
     const request = ev.data;
 
@@ -71,7 +72,7 @@ export async function createContentScriptApiServer<T extends object>(
     }
     else{
       console.error("Recieved non-sandboxed sourced message from sandbox, specify source and/or refactor this", request)
-      handleNonNativeCall(request, apiFactory(sandboxProxyPort), sandboxProxyPort, createAndSendResponse)
+      handleNonNativeCall(request, api, sandboxProxyPort, createAndSendResponse)
     }
   };
   sandboxProxyPort.addEventListener("message", sandboxMessageHandler);
@@ -82,7 +83,7 @@ export async function createContentScriptApiServer<T extends object>(
     console.log("Content script recieved message from runtime", request)
     handleNonNativeCall(
       request,
-      apiFactory(sandboxProxyPort),
+      api,
       sandboxProxyPort,
       sendResponse
     );
