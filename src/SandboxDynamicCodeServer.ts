@@ -96,6 +96,11 @@ export function createSandboxDynamicCodeServer<
           return;
         }
 
+        if (typeof event.data === 'boolean' || typeof event.data === 'number' || typeof event.data === 'string') {
+          resolveResponse(correlationId, event.data, event.data);
+          return;
+        }
+
         const returnValue = createObjectWrapperWithCallbackRegistry(
           [],
           callbackRegistry,
