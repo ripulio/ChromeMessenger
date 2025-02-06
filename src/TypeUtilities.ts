@@ -61,7 +61,7 @@ export function createObjectWrapperWithCallbackRegistry<T>(
           ...path,
           prop,
         ]);
-        return reciever;
+        return undefined;
       }
 
       return createFunctionProxy(
