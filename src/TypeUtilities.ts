@@ -24,7 +24,7 @@ export function createObjectWrapperWithCallbackRegistry<T>(
   data?: any
 ): T {
   const handler = {
-    get(target: any, prop: any) {
+    get(target: any, prop: any, reciever: any) {
       if (propIsProxy(prop)) {
         return objectId;
       }
@@ -61,7 +61,7 @@ export function createObjectWrapperWithCallbackRegistry<T>(
           ...path,
           prop,
         ]);
-        return undefined;
+        return reciever;
       }
 
       return createFunctionProxy(
