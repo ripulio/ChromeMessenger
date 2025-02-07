@@ -15,7 +15,8 @@ export function createSandboxDynamicCodeServer<
     message: MessageEvent,
     createFunction: (
       code: string,
-      extraArgs: { [key: string]: any }
+      extraArgs: { [key: string]: any },
+      transpile: boolean
     ) => Promise<Function>,
     sandboxApi: TContentScriptApi
   ) => void
@@ -96,8 +97,8 @@ export function createSandboxDynamicCodeServer<
           return;
         }
 
-        if (typeof event.data === 'boolean' || typeof event.data === 'number' || typeof event.data === 'string') {
-          resolveResponse(correlationId, event.data, event.data);
+        if (typeof objectData === 'boolean' || typeof objectData === 'number' || typeof objectData === 'string') {
+          resolveResponse(correlationId, objectData, event.data);
           return;
         }
 
@@ -146,18 +147,22 @@ export function createSandboxDynamicCodeServer<
 
       const configureFunction = async (
         code: string,
-        runtimeArguments: { [key: string]: any }
+        runtimeArguments: { [key: string]: any },
+        transpile: boolean
       ) => {
-        const runDynamicCode = async (
-          runtimeCode: string,
-        ) => {
-          // transpile code
+        const transpileCode = async (runtimeCode: string) => {
           const extraArgKeys = Object.keys(runtimeArguments);
           const transpiledCode = await contentScriptApi.transpile(
             runtimeCode,
             extraArgKeys
-          );
-
+          ); 
+          return transpiledCode;
+        }
+        const runDynamicCode = async (
+          transpiledCode: string,
+        ) => {
+          // transpile code
+          const extraArgKeys = Object.keys(runtimeArguments);
           // get all parameter names for function execution
           const globalThisKeys = Object.keys(globalThis);
           const allArgNames = [
@@ -185,7 +190,12 @@ export function createSandboxDynamicCodeServer<
           return () => new Function(...allArgNames, transpiledCode)(...args);
         };
 
-        return runDynamicCode(code);
+        if (!transpile){
+          return runDynamicCode(code);
+        }
+
+        const transpiledCode = await transpileCode(code);
+        return runDynamicCode(transpiledCode);
       };
 
       const contentScriptApi =
