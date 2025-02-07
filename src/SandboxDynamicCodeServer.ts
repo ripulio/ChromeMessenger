@@ -8,7 +8,7 @@ import { createServiceWorkerApiWrapperForSandbox } from "./ServiceWorkerApiWrapp
 
 export function createSandboxDynamicCodeServer<
   TContentScriptApi extends {
-    transpile(code: string, extraArgs: string[]): Promise<string>;
+    transpile(code: string, runtimeArgumentsKeys: string[]): Promise<string>;
   } & Record<string, any>
 >(
   handler: (
@@ -150,28 +150,25 @@ export function createSandboxDynamicCodeServer<
         runtimeArguments: { [key: string]: any },
         transpile: boolean
       ) => {
+        const extraArgKeys = Object.keys(runtimeArguments);
+        const globalThisKeys = Object.keys(globalThis);
+        const allArgNames = [
+          ...globalThisKeys,
+          ...extraArgKeys,
+          "asyncIterate",
+          "__newFunction",
+        ];
         const transpileCode = async (runtimeCode: string) => {
-          const extraArgKeys = Object.keys(runtimeArguments);
+
           const transpiledCode = await contentScriptApi.transpile(
             runtimeCode,
-            extraArgKeys
+            allArgNames
           ); 
           return transpiledCode;
         }
         const runDynamicCode = async (
           transpiledCode: string,
         ) => {
-          // transpile code
-          const extraArgKeys = Object.keys(runtimeArguments);
-          // get all parameter names for function execution
-          const globalThisKeys = Object.keys(globalThis);
-          const allArgNames = [
-            ...globalThisKeys,
-            ...extraArgKeys,
-            "asyncIterate",
-            "__newFunction",
-          ];
-
           // get all associated objects for parameter names
           const proxyObjects = globalThisKeys.map((key) => {
             if (["caches", "sessionStorage", "localStorage"].includes(key)) {
