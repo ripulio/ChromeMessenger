@@ -15,7 +15,11 @@ export function getCallbackRegistry(): Map<string, Function> {
   return callbackRegistry;
 }
 
-function createThenableCallableProxy(path: string[], objectId: string | undefined, port: MessagePort) {
+function createThenableCallableProxy(
+  path: string[],
+  objectId: string | undefined,
+  port: MessagePort
+) {
   // Return a proxy over the callable function.
   return new Proxy(function () {}, {
     // Intercept property access.
@@ -23,14 +27,19 @@ function createThenableCallableProxy(path: string[], objectId: string | undefine
       // If the property being accessed is "then", that means someone is trying to await it.
       if (property === "then") {
         // Return a then function that performs async work A.
-        return (resolve: (value: any) => void, reject: (reason: any) => void) => {
+        return (
+          resolve: (value: any) => void,
+          reject: (reason: any) => void
+        ) => {
           PropertyAccessHandler(path, objectId, port)
-          .then(result => resolve(result))
-          .catch(error => reject(error));
-        }
+            .then((result) => resolve(result))
+            .catch((error) => reject(error));
+        };
       }
       // For any other property, delegate to the target.
-      throw new Error(`get for property ${property} on ThenableCallable - this should only be called or awaited (get -> then)`);
+      throw new Error(
+        `get for property ${property} on ThenableCallable - this should only be called or awaited (get -> then)`
+      );
     },
     // Intercept calls to the function.
     apply(target, thisArg, args) {
@@ -137,7 +146,7 @@ export function createRemoteFunctionWrapperWithCallbackRegistry<T>(
           : arg
       );
       return functionInvocationHandler(
-        [], 
+        [],
         undefined,
         objectId,
         port,
