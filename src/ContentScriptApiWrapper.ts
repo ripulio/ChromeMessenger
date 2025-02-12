@@ -4,7 +4,7 @@ export type TabTargetApiWrapper<T> = {
   forTab(tabId: number): T;
 };
 
-export function createContentScriptApiWrapper<T>(): TabTargetApiWrapper<PromisifyNonPromiseMethods<T>> {
+export function createContentScriptApiWrapperForServiceWorker<T>(): TabTargetApiWrapper<PromisifyNonPromiseMethods<T>> {
   const tabTargetApiWrapper = {
     forTab(tabId: number) {
       const messageHandler = (functionPath: string[], ...args: any[]): Promise<any> => {

@@ -1,4 +1,4 @@
-export { createContentScriptApiWrapper } from './ContentScriptApiWrapper';
+export { createContentScriptApiWrapperForServiceWorker as createContentScriptApiWrapper } from './ContentScriptApiWrapper';
 export { createContentScriptApiServer} from './ContentScriptServer';
 export { createServiceWorkerApiServer } from './ServiceWorkerApiServer';
 export { createServiceWorkerApiWrapperForContentScript, createServiceWorkerApiWrapperForSandbox } from './ServiceWorkerApiWrapper';
