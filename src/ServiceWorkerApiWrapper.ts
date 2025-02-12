@@ -38,7 +38,7 @@ export function createServiceWorkerApiWrapperForSandbox<T>(port: MessagePort): T
 
       const message = {
         messageType: "ContentScriptApiInvocation",
-        functionPath: functionPath,
+        functionPath: functionPath.filter(o => o !== "then"),
         payload: transformedArgs,
         correlationId: correlationId,
       };

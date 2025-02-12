@@ -15,15 +15,45 @@ export function getCallbackRegistry(): Map<string, Function> {
   return callbackRegistry;
 }
 
-export function createObjectWrapperWithCallbackRegistry<T>(
+function createThenableCallableProxy(path: string[], objectId: string | undefined, port: MessagePort) {
+  // Return a proxy over the callable function.
+  return new Proxy(function () {}, {
+    // Intercept property access.
+    get(target, property: string, receiver) {
+      // If the property being accessed is "then", that means someone is trying to await it.
+      if (property === "then") {
+        // Return a then function that performs async work A.
+        return (resolve: (value: any) => void, reject: (reason: any) => void) => {
+          PropertyAccessHandler(path, objectId, port)
+          .then(result => resolve(result))
+          .catch(error => reject(error));
+        }
+      }
+      // For any other property, delegate to the target.
+      throw new Error(`get for property ${property} on ThenableCallable - this should only be called or awaited (get -> then)`);
+    },
+    // Intercept calls to the function.
+    apply(target, thisArg, args) {
+      return functionInvocationHandler(
+        path.slice(0, -1), // path sans last element
+        path[path.length - 1],
+        objectId,
+        port,
+        ...args
+      );
+    },
+  });
+}
+
+export function createObjectWrapperWithCallbackRegistry(
   path: string[],
   callbackRegistry: Map<string, Function>,
   port: MessagePort,
   iteratorId?: string,
   objectId?: string,
   data?: any
-): T {
-  const handler = {
+) {
+  const oldhandler = {
     get(target: any, prop: any, reciever: any) {
       if (propIsProxy(prop)) {
         return objectId;
@@ -41,27 +71,8 @@ export function createObjectWrapperWithCallbackRegistry<T>(
         }
       }
 
-      if (prop === "toString") {
-        console.error("toString called directly on object in get trap");
-        return () => data.toString();
-      }
-
-      if (prop === "valueOf") {
-        console.error("valueOf called directly on object in get trap");
-        return () => data.valueOf();
-      }
-
-      if (prop === "toPrimitive") {
-        console.error("toPrimitive called directly on object in get trap");
-        return (hint: string) => (hint === "number" ? data : data.toString());
-      }
-
-      if (prop === "then") {
-        console.error("then called directly on object in get trap", [
-          ...path,
-          prop,
-        ]);
-        return undefined;
+      if (prop !== "then") {
+        throw new Error(`get called on object in get trap property ${prop}`);
       }
 
       return createFunctionProxy(
@@ -88,15 +99,53 @@ export function createObjectWrapperWithCallbackRegistry<T>(
     },
   };
 
-  return new Proxy(
-    {
-      [IS_PROXY]: true,
-      [Symbol.toStringTag]: data?.toString(),
-      [Symbol.toPrimitive]: (hint: string) =>
-        hint === "number" ? data : data.toString(),
-    } as T,
-    handler
-  ) as unknown as T;
+  const createProxy = (handler: ProxyHandler<any>) => {
+    return new Proxy(
+      {
+        [IS_PROXY]: true,
+        toString: () => data.toString(),
+        valueOf: () => data.valueOf(),
+        [Symbol.toStringTag]: data?.toString(),
+        [Symbol.toPrimitive]: (hint: string) =>
+          hint === "number" ? data : data.toString(),
+      },
+      handler
+    );
+  };
+
+  const handler = {
+    get(target: any, property: any, reciever: any) {
+      if (property === "then") {
+        return undefined;
+      }
+      return createThenableCallableProxy([...path, property], objectId, port);
+    },
+  };
+  return createProxy(handler);
+}
+
+export function createRemoteFunctionWrapperWithCallbackRegistry<T>(
+  objectId: string,
+  callbackRegistry: Map<string, Function>,
+  port: MessagePort
+): Function {
+  const handler = {
+    apply(target: any, thisArg: any, args: any[]) {
+      const wrappedArgs = args.map((arg: any) =>
+        typeof arg === "function"
+          ? registerCallback(arg, callbackRegistry)
+          : arg
+      );
+      return functionInvocationHandler(
+        [], 
+        undefined,
+        objectId,
+        port,
+        ...wrappedArgs
+      );
+    },
+  };
+  return new Proxy(function () {}, handler) as Function;
 }
 
 export function createFunctionWrapperWithCallbackRegistry<T>(
@@ -148,7 +197,7 @@ function createFunctionProxy(
   callbackRegistry: Map<string, Function>,
   objectId: string | undefined,
   data: any,
-  port: MessagePort 
+  port: MessagePort
 ) {
   return new Proxy(function () {}, {
     apply(target: any, thisArg: any, args: any[]) {
@@ -178,13 +227,19 @@ function createFunctionProxy(
         transformArg(arg, callbackRegistry)
       );
 
-      return functionInvocationHandler(path, prop, objectId, port, ...wrappedArgs);
+      return functionInvocationHandler(
+        path,
+        prop,
+        objectId,
+        port,
+        ...wrappedArgs
+      );
     },
     get(target: any, prop: any) {
       if (propIsProxy(prop)) {
         return true;
       }
-    }
+    },
   });
 }
 
@@ -234,6 +289,32 @@ function handleAsyncIteration(objectId: string | undefined, port: MessagePort) {
       yield await value.value();
     }
   };
+}
+
+async function PropertyAccessHandler<T>(
+  path: string[],
+  objectId: string | undefined,
+  port: MessagePort
+) {
+  const correlationId = generateUniqueId();
+  const message = {
+    correlationId: correlationId,
+    messageType: "ProxyPropertyAccess",
+    functionPath: path,
+    objectId: objectId,
+    source: "sandbox",
+    destination: "content",
+  };
+
+  console.log(`Sending message: ${JSON.stringify(message)}`);
+  try {
+    port.postMessage(message);
+  } catch (e) {
+    console.error("Error sending message", e);
+  }
+
+  const response = await waitForResponse<T>(correlationId);
+  return response.proxy;
 }
 
 async function functionInvocationHandler<T>(
@@ -293,7 +374,10 @@ function registerCallback(
   return "__callback__|" + callbackId;
 }
 
-export function transformArg(arg: any, callbackRegistry: Map<string, Function>): any {
+export function transformArg(
+  arg: any,
+  callbackRegistry: Map<string, Function>
+): any {
   switch (typeof arg) {
     case "function":
       return registerCallback(arg, callbackRegistry);

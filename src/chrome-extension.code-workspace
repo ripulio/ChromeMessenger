@@ -1,0 +1,14 @@
+{
+	"folders": [
+		{
+			"path": "../../chrome-extension"
+		},
+		{
+			"path": ".."
+		},
+		{
+			"path": "../../dynamic-ts-transformer"
+		}
+	],
+	"settings": {}
+}

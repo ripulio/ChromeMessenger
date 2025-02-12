@@ -2,6 +2,7 @@ import { createObjectWrapperFactory } from "./ObjectWrapperFactory";
 import {
   getCallbackRegistry,
   createObjectWrapperWithCallbackRegistry,
+  createRemoteFunctionWrapperWithCallbackRegistry,
 } from "./TypeUtilities";
 import { resolveResponse } from "./AsyncResponseDirectory";
 import { createServiceWorkerApiWrapperForSandbox } from "./ServiceWorkerApiWrapper";
@@ -74,7 +75,14 @@ export function createSandboxDynamicCodeServer<
           });
         }
       }
-
+      if (event.data?.messageType === "functionReferenceResponse") {
+        const correlationId = event.data.correlationId;
+        const returnValue = createRemoteFunctionWrapperWithCallbackRegistry(
+          event.data.objectId,
+          callbackRegistry,
+          port);
+        resolveResponse(correlationId, returnValue, event.data);
+      }
       if (event.data?.messageType === "objectReferenceResponse") {
         const correlationId = event.data.correlationId;
 

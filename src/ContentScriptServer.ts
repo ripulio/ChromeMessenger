@@ -6,6 +6,24 @@ import { generateUniqueId } from "./TypeUtilities";
 const objectStore = new Map<string, any>();
 let nextObjectId = 1;
 
+function getFunctionToCall(
+  path: string[],
+  target: any,
+  createAndSendResponse: (response: any) => void
+) {
+  const functionName = path[path.length - 1];
+  const functionToCall = target[functionName];
+
+  if (functionToCall === undefined) {
+    return returnError(
+      `${path.join(".")} not found on target ${target}`,
+      createAndSendResponse
+    );
+  }
+
+  return functionToCall;
+}
+
 export async function createContentScriptApiServer<T extends object>(
   apiFactory: (port: MessagePort) => T,
   globalContext: typeof globalThis
@@ -24,7 +42,11 @@ export async function createContentScriptApiServer<T extends object>(
     if (request.source === "sandbox") {
       switch (request.messageType) {
         case "ProxyInvocation":
-          const target = getTarget(request, globalContext);
+          const target = getTarget(
+            request.objectId,
+            request.functionPath,
+            globalContext
+          );
 
           if (isComparison(request.functionPath)) {
             const result = executeComparison(
@@ -48,20 +70,44 @@ export async function createContentScriptApiServer<T extends object>(
             return;
           }
 
-          executeFunctionCall(
-            request.functionPath,
+          const functionToCall = request.objectId
+            ? target
+            : getFunctionToCall(
+                request.functionPath,
+                target,
+                createAndSendResponse
+              );
+
+          executeFunctionCall2(
+            functionToCall,
             injectCallbackPropogationIntoPayload(
               hydrateStoredObjectReferences(request.payload, objectStore),
               request.sandboxTabId,
               sandboxProxyPort
             ),
-            target,
             createAndSendResponse
           );
           break;
-
+        case "ProxyPropertyAccess":
+          const propertyAccessTarget = getTarget(
+            request.objectId,
+            request.functionPath,
+            globalContext
+          );
+          const result = executePropertyAccess(
+            request.functionPath[request.functionPath.length - 1],
+            propertyAccessTarget,
+            createAndSendResponse
+          );
+          createAndSendResponse(result);
+          break;
         case "sandboxCallbackResponse":
-          resolveResponse(request.correlationId, undefined, request.data, request.error);
+          resolveResponse(
+            request.correlationId,
+            undefined,
+            request.data,
+            request.error
+          );
           break;
 
         default:
@@ -69,10 +115,21 @@ export async function createContentScriptApiServer<T extends object>(
             `Unhandled sandbox message type: ${request.messageType}`
           );
       }
-    }
-    else{
-      console.error("Recieved non-sandboxed sourced message from sandbox, specify source and/or refactor this", request)
-      handleNonNativeCall(request, api, sandboxProxyPort, createAndSendResponse)
+    } else {
+      console.error(
+        "Recieved non-sandboxed sourced message from sandbox, specify source and/or refactor this",
+        request
+      );
+      handleNonNativeCall(
+        request.functionPath,
+        injectCallbackPropogationIntoPayload(
+          request.payload,
+          request.sandboxTabId,
+          sandboxProxyPort
+        ),
+        api,
+        createAndSendResponse
+      );
     }
   };
   sandboxProxyPort.addEventListener("message", sandboxMessageHandler);
@@ -80,11 +137,15 @@ export async function createContentScriptApiServer<T extends object>(
 
   // for messages from the background?
   chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-    console.log("Content script recieved message from runtime", request)
+    console.log("Content script recieved message from runtime", request);
     handleNonNativeCall(
-      request,
+      request.functionPath,
+      injectCallbackPropogationIntoPayload(
+        request.payload,
+        request.sandboxTabId,
+        sandboxProxyPort
+      ),
       api,
-      sandboxProxyPort,
       sendResponse
     );
   });
@@ -127,37 +188,38 @@ async function getSandboxPort(): Promise<MessagePort> {
 
   const channel = new MessageChannel();
 
-  iframe?.contentWindow?.postMessage({messageType: "port_init"}, "*", [channel.port2]);
+  iframe?.contentWindow?.postMessage({ messageType: "port_init" }, "*", [
+    channel.port2,
+  ]);
 
   return channel.port1;
 }
 
 function handleNonNativeCall(
-  request: any,
+  path: string[],
+  payload: any[],
   api: any,
-  port: MessagePort,
   sendResponse: (message: any) => void
 ) {
-  if (request.payload) {
-    const transformedArgs = request.payload.map((arg: any) => {
-      if (typeof arg === "string" && arg.startsWith("__callback__|")) {
-        return createCallback(arg, request.sandboxTabId, port);
-      }
-      return arg;
-    });
-    request.payload = transformedArgs;
-  }
   // Handle non-proxy messages
-  executeFunctionCall(request.functionPath, request.payload, api, (result) =>
-    sendResponse(result)
-  );
+  executeFunctionCall(path, payload, api, (result) => sendResponse(result));
   return true;
 }
 
-function getTarget(request: any, globalContext: typeof globalThis) {
-  return request.objectId === undefined
-    ? globalContext
-    : objectStore.get(request.objectId);
+function getTarget(objectId: string, path: string[], globalContext: any) {
+  if (objectId) {
+    return objectStore.get(objectId);
+  }
+
+  if (path && path.length > 0) {
+    let currentTarget = globalContext;
+    for (let i = 0; i < path.length - 1; i++) {
+      currentTarget = currentTarget[path[i]];
+    }
+    return currentTarget;
+  }
+
+  return globalContext;
 }
 
 function executeComparison(
@@ -231,11 +293,7 @@ function injectCallbackPropogationIntoPayload(
       payload[key].startsWith("__callback__|")
     ) {
       const callbackReference = payload[key];
-      payload[key] = createCallback(
-        callbackReference,
-        sandboxTabId,
-        port
-      );
+      payload[key] = createCallback(callbackReference, sandboxTabId, port);
     }
   }
   return payload;
@@ -340,7 +398,7 @@ function argumentToEvent(argument: any): Event | null {
     return null;
   }
 
-  return new eventConstructor(argument.type, {...argument})
+  return new eventConstructor(argument.type, { ...argument });
 }
 
 type EventConstructor = {
@@ -352,12 +410,69 @@ function isEventConstructor(value: any): value is EventConstructor {
   return typeof value === "function";
 }
 
-function createTypedEvent(
-  constructor: EventConstructor,
-  initArgs: any,
-  eventType: string
-): Event {
-  return new constructor(eventType, initArgs);
+function returnError(
+  message: string,
+  createAndSendResponse: (response: any) => void
+) {
+  console.error(message);
+  createAndSendResponse({ error: message });
+  return false;
+}
+
+function ResolveTargetFromPath(
+  target: any,
+  messagePath: string[],
+  createAndSendResponse: (response: any) => void
+) {
+  let currentTarget = target;
+  for (let i = 0; i < messagePath.length - 1; i++) {
+    if (currentTarget[messagePath[i]] === undefined) {
+      return returnError(
+        `Path ${messagePath
+          .slice(0, i + 1)
+          .join(".")} not found in target ${currentTarget}`,
+        createAndSendResponse
+      );
+    }
+    currentTarget = currentTarget[messagePath[i]];
+  }
+  return currentTarget;
+}
+
+function executeFunctionCall2(
+  targetFunction: Function,
+  payload: any[],
+  createAndSendResponse: (response: any) => void
+): boolean {
+  if (targetFunction === undefined) {
+    return returnError(
+      `Function ${targetFunction} not found on target.`,
+      createAndSendResponse
+    );
+  }
+
+  console.log("Transforming events in payload", payload);
+  const eventedPayload = transformEventsInPayload(payload);
+
+  console.log("Executing function", targetFunction, eventedPayload);
+  try {
+    const result = targetFunction(eventedPayload);
+    Promise.resolve(result)
+      .then((resolvedResult: any) => {
+        console.log("Result for function", targetFunction, resolvedResult);
+        createAndSendResponse(resolvedResult);
+      })
+      .catch((error: any) => {
+        console.error(`Error in ${targetFunction.toString()}:`, error);
+        createAndSendResponse({ error: error.message });
+      });
+    return true;
+  } catch (error) {
+    console.error(`Error in ${targetFunction.toString()}:`, error);
+    createAndSendResponse({ error: error });
+    return false;
+  }
+  // Indicate that we will send a response asynchronously
 }
 
 function executeFunctionCall(
@@ -368,25 +483,8 @@ function executeFunctionCall(
 ): boolean {
   console.log("Recieved function call", messagePath, payload, target);
 
-  const returnError = (message: string) => {
-    console.error(message);
-    createAndSendResponse({ error: message });
-    return false;
-  };
-
-  let currentTarget = target;
-  for (let i = 0; i < messagePath.length - 1; i++) {
-    if (currentTarget[messagePath[i]] === undefined) {
-      const message = `Path ${messagePath
-        .slice(0, i + 1)
-        .join(".")} not found in target ${currentTarget}`;
-      return returnError(message);
-    }
-    currentTarget = currentTarget[messagePath[i]];
-  }
-
   const functionName = messagePath[messagePath.length - 1];
-  const functionToCall = currentTarget[functionName];
+  const functionToCall = target[functionName];
 
   if (functionToCall === undefined) {
     if (payload.length === 0) {
@@ -397,7 +495,7 @@ function executeFunctionCall(
           const message = `Path ${messagePath
             .slice(0, i + 1)
             .join(".")} access on undefined`;
-          return returnError(message);
+          return returnError(message, createAndSendResponse);
         }
         result = result[messagePath[i]];
       }
@@ -407,7 +505,8 @@ function executeFunctionCall(
     }
 
     return returnError(
-      `${messagePath.join(".")} not found on target ${currentTarget}`
+      `${messagePath.join(".")} not found on target ${target}`,
+      createAndSendResponse
     );
   }
 
@@ -421,7 +520,7 @@ function executeFunctionCall(
 
   console.log("Executing function", functionToCall, eventedPayload);
   try {
-    const result = functionToCall.apply(currentTarget, eventedPayload);
+    const result = functionToCall.apply(target, eventedPayload);
     Promise.resolve(result)
       .then((resolvedResult: any) => {
         console.log("Result for function", functionToCall, resolvedResult);
@@ -440,10 +539,40 @@ function executeFunctionCall(
   // Indicate that we will send a response asynchronously
 }
 
+function executePropertyAccess(
+  property: string,
+  target: any,
+  createAndSendResponse: (response: any) => void
+) {
+  console.log("Recieved property access", property, target);
+
+  let result = target[property];
+  if (typeof result === "function") {
+    result = result.bind(target);
+  }
+  createAndSendResponse(result);
+}
+
+type FunctionReferenceResponse = {
+  messageType: "functionReferenceResponse";
+  correlationId: string;
+  objectId: string;
+  data: string;
+};
+
 function createResponse(
   result: any,
   correlationId: string
-): ObjectReferenceResponse {
+): ObjectReferenceResponse | FunctionReferenceResponse {
+  if (typeof result === "function") {
+    const objectId = storeObjectReference(result);
+    return {
+      messageType: "functionReferenceResponse" as const,
+      correlationId: correlationId,
+      objectId: objectId,
+      data: result.toString(),
+    };
+  }
   const baseResponse = {
     messageType: "objectReferenceResponse" as const,
     correlationId: correlationId,
