@@ -24,7 +24,7 @@ export function createServiceWorkerApiWrapperForContentScript<T>(): T {
 }
 
 export function createServiceWorkerApiWrapperForSandbox<T>(port: MessagePort): T {
-  const messageHandler = (
+    const messageHandler = (
     functionPath: string[],
     ...args: any[]
   ): Promise<any> => {
