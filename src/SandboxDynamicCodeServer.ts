@@ -7,10 +7,12 @@ import {
 import { resolveResponse } from "./AsyncResponseDirectory";
 import { createServiceWorkerApiWrapperForSandbox } from "./ServiceWorkerApiWrapper";
 
+interface IContentScriptApiBase {
+  transpile: (code: string, runtimeArgumentsKeys: string[]) => Promise<string>;
+}
+
 export function createSandboxDynamicCodeServer<
-  TContentScriptApi extends {
-    transpile(code: string, runtimeArgumentsKeys: string[]): Promise<string>;
-  } & Record<string, any>
+  TContentScriptApi extends IContentScriptApiBase = IContentScriptApiBase
 >(
   handler: (
     message: MessageEvent,
@@ -19,7 +21,7 @@ export function createSandboxDynamicCodeServer<
       extraArgs: { [key: string]: any },
       transpile: boolean
     ) => Promise<Function>,
-    sandboxApi: TContentScriptApi
+    contentScriptApi: TContentScriptApi
   ) => void
 ) {
   const initListener = (event: MessageEvent) => {
@@ -80,7 +82,8 @@ export function createSandboxDynamicCodeServer<
         const returnValue = createRemoteFunctionWrapperWithCallbackRegistry(
           event.data.objectId,
           callbackRegistry,
-          port);
+          port
+        );
         resolveResponse(correlationId, returnValue, event.data);
       }
       if (event.data?.messageType === "objectReferenceResponse") {
@@ -105,7 +108,11 @@ export function createSandboxDynamicCodeServer<
           return;
         }
 
-        if (typeof objectData === 'boolean' || typeof objectData === 'number' || typeof objectData === 'string') {
+        if (
+          typeof objectData === "boolean" ||
+          typeof objectData === "number" ||
+          typeof objectData === "string"
+        ) {
           resolveResponse(correlationId, objectData, event.data);
           return;
         }
@@ -135,6 +142,8 @@ export function createSandboxDynamicCodeServer<
         return;
       }
 
+      const contentScriptApi =
+        createServiceWorkerApiWrapperForSandbox<TContentScriptApi>(port);
       // unknown function call, allow handling by consumer
       const proxies = createObjectWrapperFactory<Window & typeof globalThis>(
         callbackRegistry,
@@ -166,17 +175,15 @@ export function createSandboxDynamicCodeServer<
           "asyncIterate",
           "__newFunction",
         ];
-        const transpileCode = async (runtimeCode: string) => {
 
+        const transpileCode = async (runtimeCode: string): Promise<string> => {
           const transpiledCode = await contentScriptApi.transpile(
             runtimeCode,
             allArgNames
-          ); 
+          );
           return transpiledCode;
-        }
-        const runDynamicCode = async (
-          transpiledCode: string,
-        ) => {
+        };
+        const runDynamicCode = async (transpiledCode: string) => {
           // get all associated objects for parameter names
           const proxyObjects = globalThisKeys.map((key) => {
             if (["caches", "sessionStorage", "localStorage"].includes(key)) {
@@ -195,7 +202,7 @@ export function createSandboxDynamicCodeServer<
           return () => new Function(...allArgNames, transpiledCode)(...args);
         };
 
-        if (!transpile){
+        if (!transpile) {
           return runDynamicCode(code);
         }
 
@@ -203,8 +210,6 @@ export function createSandboxDynamicCodeServer<
         return runDynamicCode(transpiledCode);
       };
 
-      const contentScriptApi =
-        createServiceWorkerApiWrapperForSandbox<TContentScriptApi>(port);
       handler(event, configureFunction, contentScriptApi);
     });
     port.start();
