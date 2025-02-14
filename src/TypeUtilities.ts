@@ -127,6 +127,14 @@ export function createObjectWrapperWithCallbackRegistry(
       if (property === "then") {
         return undefined;
       }
+      if (property === "__setProp") {
+        return (property: string, value: any) =>
+          assignmentHandler(objectId, property, value, port);
+      }
+      if (property === "__compare"){
+        return (value: any, operatorKind: number) =>
+          comparisonHandler(objectId, value, operatorKind, port);
+      };
       return createThenableCallableProxy([...path, property], objectId, port);
     },
   };
@@ -140,11 +148,7 @@ export function createRemoteFunctionWrapperWithCallbackRegistry<T>(
 ): Function {
   const handler = {
     apply(target: any, thisArg: any, args: any[]) {
-      const wrappedArgs = args.map((arg: any) =>
-        typeof arg === "function"
-          ? registerCallback(arg, callbackRegistry)
-          : arg
-      );
+      const wrappedArgs = args.map((arg: any) => transformArg(arg, callbackRegistry));
       return functionInvocationHandler(
         [],
         undefined,
@@ -166,9 +170,7 @@ export function createFunctionWrapperWithCallbackRegistry<T>(
   const handler = {
     apply(target: any, thisArg: any, args: any[]) {
       const wrappedArgs = args.map((arg: any) =>
-        typeof arg === "function"
-          ? registerCallback(arg, callbackRegistry)
-          : arg
+        transformArg(arg, callbackRegistry)
       );
       return functionInvocationHandler(
         functionPath,
@@ -324,6 +326,52 @@ async function PropertyAccessHandler<T>(
 
   const response = await waitForResponse<T>(correlationId);
   return response.proxy;
+}
+
+async function comparisonHandler(
+  objectId: string | undefined,
+  value: any,
+  operatorKind: number,
+  port: MessagePort
+) {
+  const correlationId = generateUniqueId();
+  const message = {
+    correlationId: correlationId,
+    messageType: "ProxyComparison",
+    objectId: objectId,
+    value: value,
+    operatorKind: operatorKind,
+    source: "sandbox",
+    destination: "content",
+  };
+
+  port.postMessage(message);
+
+  const response = await waitForResponse<any>(correlationId);
+  return response.proxy;
+}
+
+async function assignmentHandler(
+  objectId: string | undefined,
+  prop: string,
+  value: any,
+  port: MessagePort
+) {
+  const correlationId = generateUniqueId();
+  const message = {
+    correlationId: correlationId,
+    messageType: "ProxyAssignment",
+    property: prop,
+    objectId: objectId,
+    value: value,
+    source: "sandbox",
+    destination: "content",
+  };
+
+  port.postMessage(message);
+
+  await waitForResponse<any>(correlationId);
+  return true;
 }
 
 async function functionInvocationHandler<T>(

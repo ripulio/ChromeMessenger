@@ -41,34 +41,28 @@ export async function createContentScriptApiServer<T extends object>(
     console.log("Recieved message over port", ev);
     if (request.source === "sandbox") {
       switch (request.messageType) {
+        case "ProxyAssignment":
+          const assignmentResult = executeAssignment(
+            request.value,
+            getTarget(request.objectId, request.functionPath, globalContext),
+            request.property
+          );
+          createAndSendResponse(assignmentResult);
+          return;
+        case "ProxyComparison":
+          const comparisonResult = executeComparison(
+            request.payload[0],
+            getTarget(request.objectId, request.functionPath, globalContext),
+            hydrateObjectReferenceArg(request.payload[1], objectStore)
+          );
+          createAndSendResponse(comparisonResult);
+          return;
         case "ProxyInvocation":
           const target = getTarget(
             request.objectId,
             request.functionPath,
             globalContext
           );
-
-          if (isComparison(request.functionPath)) {
-            const result = executeComparison(
-              request.payload[0],
-              target,
-              hydrateObjectReferenceArg(request.payload[1], objectStore)
-            );
-            createAndSendResponse(result);
-            return;
-          }
-
-          if (isAssignment(request.payload)) {
-            const arg = request.payload[0].value;
-            const transformedArg = hydrateObjectReferenceArg(arg, objectStore);
-            const result = executeAssignment(
-              transformedArg,
-              target,
-              request.functionPath
-            );
-            createAndSendResponse(result);
-            return;
-          }
 
           const functionToCall = request.objectId
             ? target
@@ -347,18 +341,10 @@ function isAssignment(payload: any): boolean {
   return payload.length > 0 && payload[0].type === "assignment";
 }
 
-function isComparison(path: string[]): boolean {
-  return path.length > 0 && path[0] === "__compare";
-}
+function executeAssignment(arg: any, target: any, property: string): boolean {
 
-function executeAssignment(arg: any, target: any, path: string[]): boolean {
-  let current = target;
 
-  for (let i = 0; i < path.length - 1; i++) {
-    current = current[path[i]];
-  }
-
-  return (current[path[path.length - 1]] = arg);
+  return (target[property] = arg);
 }
 
 function transformEventsInPayload(payload: any[]): any[] {
