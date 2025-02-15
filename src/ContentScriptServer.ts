@@ -72,7 +72,7 @@ export async function createContentScriptApiServer<T extends object>(
                 createAndSendResponse
               );
 
-          executeFunctionCall2(
+          executeFunctionCall(
             functionToCall,
             injectCallbackPropogationIntoPayload(
               hydrateStoredObjectReferences(request.payload, objectStore),
@@ -114,7 +114,7 @@ export async function createContentScriptApiServer<T extends object>(
         "Recieved non-sandboxed sourced message from sandbox, specify source and/or refactor this",
         request
       );
-      handleNonNativeCall(
+      executeFunctionCallFromPath(
         request.functionPath,
         injectCallbackPropogationIntoPayload(
           request.payload,
@@ -132,7 +132,9 @@ export async function createContentScriptApiServer<T extends object>(
   // for messages from the background?
   chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     console.log("Content script recieved message from runtime", request);
-    handleNonNativeCall(
+
+    // Handle non-proxy messages
+    executeFunctionCallFromPath(
       request.functionPath,
       injectCallbackPropogationIntoPayload(
         request.payload,
@@ -142,6 +144,7 @@ export async function createContentScriptApiServer<T extends object>(
       api,
       sendResponse
     );
+    return true;
   });
 }
 
@@ -187,17 +190,6 @@ async function getSandboxPort(): Promise<MessagePort> {
   ]);
 
   return channel.port1;
-}
-
-function handleNonNativeCall(
-  path: string[],
-  payload: any[],
-  api: any,
-  sendResponse: (message: any) => void
-) {
-  // Handle non-proxy messages
-  executeFunctionCall(path, payload, api, (result) => sendResponse(result));
-  return true;
 }
 
 function getTarget(objectId: string, path: string[], globalContext: any) {
@@ -337,13 +329,7 @@ function stringifyEvent(e: any) {
   );
 }
 
-function isAssignment(payload: any): boolean {
-  return payload.length > 0 && payload[0].type === "assignment";
-}
-
 function executeAssignment(arg: any, target: any, property: string): boolean {
-
-
   return (target[property] = arg);
 }
 
@@ -405,27 +391,7 @@ function returnError(
   return false;
 }
 
-function ResolveTargetFromPath(
-  target: any,
-  messagePath: string[],
-  createAndSendResponse: (response: any) => void
-) {
-  let currentTarget = target;
-  for (let i = 0; i < messagePath.length - 1; i++) {
-    if (currentTarget[messagePath[i]] === undefined) {
-      return returnError(
-        `Path ${messagePath
-          .slice(0, i + 1)
-          .join(".")} not found in target ${currentTarget}`,
-        createAndSendResponse
-      );
-    }
-    currentTarget = currentTarget[messagePath[i]];
-  }
-  return currentTarget;
-}
-
-function executeFunctionCall2(
+function executeFunctionCall(
   targetFunction: Function,
   payload: any[],
   createAndSendResponse: (response: any) => void
@@ -461,7 +427,7 @@ function executeFunctionCall2(
   // Indicate that we will send a response asynchronously
 }
 
-function executeFunctionCall(
+function executeFunctionCallFromPath(
   messagePath: string[],
   payload: any,
   target: any,
