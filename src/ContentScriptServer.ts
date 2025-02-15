@@ -442,7 +442,7 @@ function executeFunctionCall2(
 
   console.log("Executing function", targetFunction, eventedPayload);
   try {
-    const result = targetFunction(eventedPayload);
+    const result = targetFunction(...eventedPayload);
     Promise.resolve(result)
       .then((resolvedResult: any) => {
         console.log("Result for function", targetFunction, resolvedResult);
