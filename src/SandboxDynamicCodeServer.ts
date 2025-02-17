@@ -7,12 +7,12 @@ import {
 import { resolveResponse } from "./AsyncResponseDirectory";
 import { createServiceWorkerApiWrapperForSandbox } from "./ServiceWorkerApiWrapper";
 
-interface IContentScriptApiBase {
+export interface IContentScriptTranspilationProxy {
   transpile: (code: string, runtimeArgumentsKeys: string[]) => Promise<string>;
 }
 
 export function createSandboxDynamicCodeServer<
-  TContentScriptApi extends IContentScriptApiBase = IContentScriptApiBase
+  TContentScriptApi extends IContentScriptTranspilationProxy = IContentScriptTranspilationProxy
 >(
   handler: (
     message: MessageEvent,
