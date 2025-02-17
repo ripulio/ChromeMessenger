@@ -6,17 +6,12 @@ import {
 import { resolveResponse } from "./AsyncResponseDirectory";
 import { createServiceWorkerApiWrapperForSandbox } from "./ServiceWorkerApiWrapper";
 
+export interface IContentScriptTranspilationProxy {
+  transpile: (code: string, runtimeArgumentsKeys: string[]) => Promise<string>;
+}
+
 export function createSandboxDynamicCodeServer<
-  TContentScriptApi extends {
-    transpile(code: string, runtimeArgumentsKeys: string[]): Promise<string>;
-    logToPanel(
-      logObject: any,
-      method: string,
-      backgroundColor: string,
-      detail: boolean,
-      extraParams?: Record<string, any>
-    ): Promise<void>;
-  } & Record<string, any>
+  TContentScriptApi extends IContentScriptTranspilationProxy = IContentScriptTranspilationProxy
 >(
   handler: (
     message: MessageEvent,
@@ -166,11 +161,7 @@ export function createSandboxDynamicCodeServer<
           "asyncIterate",
           "__newFunction",
         ];
-        const logger = {
-          log: createLogFn("log", "black", contentScriptApi.logToPanel),
-          warn: createLogFn("warn", "orange", contentScriptApi.logToPanel),
-          error: createLogFn("error", "red", contentScriptApi.logToPanel),
-        };
+
         const transpileCode = async (runtimeCode: string) => {
 
           const transpiledCode = await contentScriptApi.transpile(
@@ -193,7 +184,6 @@ export function createSandboxDynamicCodeServer<
           const args = [
             ...proxyObjects,
             ...extraArgValues,
-            logger,
             asyncIterate,
             runDynamicCode,
           ];
@@ -259,34 +249,4 @@ async function executeCallback(
   throw new Error(`Callback ${callbackReference} not found`);
 }
 
-/**
- * A helper function to generate a logger method.
- *
- * @param consoleMethod - Which console method to use ("log", "warn", or "error").
- * @param color - The color to use in contentScriptApi.logToPanel.
- * @returns A logging function that logs to both the console and the panel.
- */
-function createLogFn(
-  consoleMethod: "log" | "warn" | "error",
-  color: string,
-  logToPanel: (
-    logObject: any,
-    method: string,
-    backgroundColor: string,
-    detail: boolean,
-    extraParams?: Record<string, any>
-  ) => Promise<void>
-): (...args: any[]) => void {
-  return (...args: any[]) => {
-    // Use the relevant console method
-    console[consoleMethod](...args);
-    // Log the message to the panel with the provided color
-    logToPanel(
-      {},
-      `console.${consoleMethod}`,
-      color,
-      false,
-      { message: args.join(" ") }
-    );
-  };
-}
+

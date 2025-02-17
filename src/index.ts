@@ -6,3 +6,4 @@ export { createSandboxProxyServer } from './SandboxProxyServer';
 export { createSandboxDynamicCodeServer } from './SandboxDynamicCodeServer';
 export { TabTargetApiWrapper } from './ContentScriptApiWrapper';
 export { PromisifyNonPromiseMethods} from './TypeUtilities';
+export { IContentScriptTranspilationProxy } from './SandboxDynamicCodeServer';
