@@ -17,14 +17,13 @@ export function createObjectWrapperFactory<T>(
         switch (propType) {
           case "function":
             return createFunctionWrapperWithCallbackRegistry(
-              [],
-              prop as keyof T,
+              { functionName: prop },
               callbackRegistry,
               port
             );
           case "object":
             return createObjectWrapperWithCallbackRegistry(
-              [prop],
+              { kind: "name", value: prop },
               callbackRegistry,
               port,
               undefined,
@@ -32,7 +31,7 @@ export function createObjectWrapperFactory<T>(
             );
           default:
             return createObjectWrapperWithCallbackRegistry(
-              [prop],
+              { kind: "name", value: prop },
               callbackRegistry,
               port,
               undefined,

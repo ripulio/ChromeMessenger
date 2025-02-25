@@ -118,11 +118,10 @@ export function createSandboxDynamicCodeServer<
         }
 
         const returnValue = createObjectWrapperWithCallbackRegistry(
-          [],
+          {kind: "objectId", value: event.data.objectId},
           callbackRegistry,
           port,
           event.data.iteratorId,
-          event.data.objectId,
           objectData
         );
         resolveResponse(correlationId, returnValue, event.data);
@@ -231,11 +230,10 @@ async function executeCallback(
     const deserializedArgs = args.map((arg: any) => {
       if (arg.type === "objectReference") {
         return createObjectWrapperWithCallbackRegistry(
-          [],
+          {kind: "objectId", value: arg.objectId},
           callbackRegistry,
           port,
           arg.iteratorId,
-          arg.objectId,
           arg.value
         );
       }

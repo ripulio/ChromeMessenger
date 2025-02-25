@@ -6,24 +6,6 @@ import { generateUniqueId } from "./TypeUtilities";
 const objectStore = new Map<string, any>();
 let nextObjectId = 1;
 
-function getFunctionToCall(
-  path: string[],
-  target: any,
-  createAndSendResponse: (response: any) => void
-) {
-  const functionName = path[path.length - 1];
-  const functionToCall = target[functionName];
-
-  if (functionToCall === undefined) {
-    return returnError(
-      `${path.join(".")} not found on target ${target}`,
-      createAndSendResponse
-    );
-  }
-
-  return functionToCall;
-}
-
 export async function createContentScriptApiServer<T extends object>(
   apiFactory: (port: MessagePort) => T,
   globalContext: typeof globalThis
@@ -51,26 +33,16 @@ export async function createContentScriptApiServer<T extends object>(
           return;
         case "ProxyComparison":
           const comparisonResult = executeComparison(
-            request.payload[0],
+            request.value.operatorKind,
             getTarget(request.objectId, request.functionPath, globalContext),
-            hydrateObjectReferenceArg(request.payload[1], objectStore)
+            hydrateObjectReferenceArg(request.value.value, objectStore)
           );
           createAndSendResponse(comparisonResult);
           return;
         case "ProxyInvocation":
-          const target = getTarget(
-            request.objectId,
-            request.functionPath,
-            globalContext
-          );
-
           const functionToCall = request.objectId
-            ? target
-            : getFunctionToCall(
-                request.functionPath,
-                target,
-                createAndSendResponse
-              );
+            ? objectStore.get(request.objectId)
+            : (globalContext as any)[request.functionName];
 
           executeFunctionCall(
             functionToCall,
@@ -83,14 +55,15 @@ export async function createContentScriptApiServer<T extends object>(
           );
           break;
         case "ProxyPropertyAccess":
-          const propertyAccessTarget = getTarget(
-            request.objectId,
-            request.functionPath,
-            globalContext
-          );
+          const objectId = request.objectId;
+          const objectName = request.objectName;
+          const context = request.objectId
+            ? objectStore.get(objectId)
+            : (globalContext as any)[objectName];
+          const property = request.property;
           const result = executePropertyAccess(
-            request.functionPath[request.functionPath.length - 1],
-            propertyAccessTarget,
+            property,
+            context,
             createAndSendResponse
           );
           createAndSendResponse(result);
@@ -231,6 +204,8 @@ function executeComparison(
       return left === right;
     case "34": // GreaterThanEqualsToken
       return left >= right;
+    case "57":
+      return left || right;
     default:
       console.warn(`Unknown comparison operator: ${comparisonIdentifier}`);
       return false;

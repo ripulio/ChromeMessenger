@@ -16,8 +16,8 @@ export function getCallbackRegistry(): Map<string, Function> {
 }
 
 function createThenableCallableProxy(
-  path: string[],
-  objectId: string | undefined,
+  originalProperty: string,
+  node: ProxyInfo,
   port: MessagePort
 ) {
   // Return a proxy over the callable function.
@@ -31,7 +31,7 @@ function createThenableCallableProxy(
           resolve: (value: any) => void,
           reject: (reason: any) => void
         ) => {
-          PropertyAccessHandler(path, objectId, port)
+          PropertyAccessHandler(node, originalProperty, port)
             .then((result) => resolve(result))
             .catch((error) => reject(error));
         };
@@ -44,9 +44,7 @@ function createThenableCallableProxy(
     // Intercept calls to the function.
     apply(target, thisArg, args) {
       return functionInvocationHandler(
-        path.slice(0, -1), // path sans last element
-        path[path.length - 1],
-        objectId,
+        { functionName: originalProperty },
         port,
         ...args
       );
@@ -54,14 +52,18 @@ function createThenableCallableProxy(
   });
 }
 
+type ProxyInfo =
+  | { kind: "objectId"; value: string }
+  | { kind: "name"; value: string };
+
 export function createObjectWrapperWithCallbackRegistry(
-  path: string[],
+  node: ProxyInfo,
   callbackRegistry: Map<string, Function>,
   port: MessagePort,
   iteratorId?: string,
-  objectId?: string,
   data?: any
 ) {
+  /*
   const oldhandler = {
     get(target: any, prop: any, reciever: any) {
       if (propIsProxy(prop)) {
@@ -86,7 +88,7 @@ export function createObjectWrapperWithCallbackRegistry(
 
       return createFunctionProxy(
         prop,
-        path,
+        node,
         callbackRegistry,
         (prop === "done" || prop === "next") && iteratorId
           ? iteratorId
@@ -107,11 +109,11 @@ export function createObjectWrapperWithCallbackRegistry(
       return hint === "number" ? data : data.toString();
     },
   };
-
+  */
   const createProxy = (handler: ProxyHandler<any>) => {
     return new Proxy(
       {
-        [IS_PROXY]: true,
+        [IS_PROXY]: node,
         toString: () => data.toString(),
         valueOf: () => data.valueOf(),
         [Symbol.toStringTag]: data?.toString(),
@@ -127,15 +129,18 @@ export function createObjectWrapperWithCallbackRegistry(
       if (property === "then") {
         return undefined;
       }
+      if (property === "isProxy") {
+        return node;
+      }
       if (property === "__setProp") {
         return (property: string, value: any) =>
-          assignmentHandler(objectId, property, value, port);
+          assignmentHandler(node, property, value, port);
       }
-      if (property === "__compare"){
+      if (property === "__compare") {
         return (value: any, operatorKind: number) =>
-          comparisonHandler(objectId, value, operatorKind, port);
-      };
-      return createThenableCallableProxy([...path, property], objectId, port);
+          comparisonHandler(node, value, operatorKind, port);
+      }
+      return createThenableCallableProxy(property, node, port);
     },
   };
   return createProxy(handler);
@@ -148,11 +153,11 @@ export function createRemoteFunctionWrapperWithCallbackRegistry<T>(
 ): Function {
   const handler = {
     apply(target: any, thisArg: any, args: any[]) {
-      const wrappedArgs = args.map((arg: any) => transformArg(arg, callbackRegistry));
+      const wrappedArgs = args.map((arg: any) =>
+        transformArg(arg, callbackRegistry)
+      );
       return functionInvocationHandler(
-        [],
-        undefined,
-        objectId,
+        { objectId: objectId },
         port,
         ...wrappedArgs
       );
@@ -162,8 +167,7 @@ export function createRemoteFunctionWrapperWithCallbackRegistry<T>(
 }
 
 export function createFunctionWrapperWithCallbackRegistry<T>(
-  functionPath: string[],
-  node: keyof T,
+  functionCallInfo: FunctionCallInfo,
   callbackRegistry: Map<string, Function>,
   port: MessagePort
 ): Function {
@@ -172,13 +176,7 @@ export function createFunctionWrapperWithCallbackRegistry<T>(
       const wrappedArgs = args.map((arg: any) =>
         transformArg(arg, callbackRegistry)
       );
-      return functionInvocationHandler(
-        functionPath,
-        node,
-        undefined,
-        port,
-        ...wrappedArgs
-      );
+      return functionInvocationHandler(functionCallInfo, port, ...wrappedArgs);
     },
   };
   return new Proxy(function () {}, handler) as Function;
@@ -202,6 +200,7 @@ export function createObjectWrapper<T>(
   return new Proxy(function () {}, handler) as PromisifyNonPromiseMethods<T>;
 }
 
+/*
 function createFunctionProxy(
   prop: any,
   path: string[],
@@ -210,6 +209,7 @@ function createFunctionProxy(
   data: any,
   port: MessagePort
 ) {
+  const proxyInfo = objectId ? {objectId: objectId} : {name: prop};
   return new Proxy(function () {}, {
     apply(target: any, thisArg: any, args: any[]) {
       if (typeof prop === "symbol" && prop === Symbol.asyncIterator) {
@@ -248,19 +248,21 @@ function createFunctionProxy(
     },
     get(target: any, prop: any) {
       if (propIsProxy(prop)) {
-        return true;
+        return proxyInfo; 
       }
     },
   });
 }
-
+*/
 const IS_PROXY = Symbol("isProxy");
 
 function propIsProxy(prop: string) {
   return prop === "isProxy" || (typeof prop === "symbol" && prop === IS_PROXY);
 }
 
-function isProxy(obj: any): string | undefined {
+function isProxy(
+  obj: any
+): { objectId: string } | { name: string } | undefined {
   return obj && obj[IS_PROXY];
 }
 
@@ -301,21 +303,45 @@ function handleAsyncIteration(objectId: string | undefined, port: MessagePort) {
     }
   };
 }
+function decorateMessageWithFunctionCallInfo<T>(
+  message: T,
+  node: FunctionCallInfo
+): T {
+  if ("objectId" in node) {
+    (message as any).objectId = node.objectId;
+  } else {
+    (message as any).functionName = node.functionName;
+    if ("objectName" in node) {
+      (message as any).objectName = node.objectName;
+    }
+  }
+  return message;
+}
+function decorateMessageWithProxyInfo<T>(message: T, node: ProxyInfo): T {
+  if (node.kind === "objectId") {
+    (message as any).objectId = node.value;
+  } else {
+    (message as any).objectName = node.value;
+  }
+  return message;
+}
 
 async function PropertyAccessHandler<T>(
-  path: string[],
-  objectId: string | undefined,
+  node: ProxyInfo,
+  property: string,
   port: MessagePort
 ) {
   const correlationId = generateUniqueId();
-  const message = {
-    correlationId: correlationId,
-    messageType: "ProxyPropertyAccess",
-    functionPath: path,
-    objectId: objectId,
-    source: "sandbox",
-    destination: "content",
-  };
+  const message = decorateMessageWithProxyInfo(
+    {
+      correlationId: correlationId,
+      messageType: "ProxyPropertyAccess",
+      property: property,
+      source: "sandbox",
+      destination: "content",
+    },
+    node
+  );
 
   console.log(`Sending message: ${JSON.stringify(message)}`);
   try {
@@ -329,21 +355,23 @@ async function PropertyAccessHandler<T>(
 }
 
 async function comparisonHandler(
-  objectId: string | undefined,
+  node: ProxyInfo,
   value: any,
   operatorKind: number,
   port: MessagePort
 ) {
   const correlationId = generateUniqueId();
-  const message = {
-    correlationId: correlationId,
-    messageType: "ProxyComparison",
-    objectId: objectId,
-    value: value,
-    operatorKind: operatorKind,
-    source: "sandbox",
-    destination: "content",
-  };
+  const message = decorateMessageWithProxyInfo(
+    {
+      correlationId: correlationId,
+      messageType: "ProxyComparison",
+      value: value,
+      operatorKind: operatorKind,
+      source: "sandbox",
+      destination: "content",
+    },
+    node
+  );
 
   port.postMessage(message);
 
@@ -352,21 +380,23 @@ async function comparisonHandler(
 }
 
 async function assignmentHandler(
-  objectId: string | undefined,
+  node: ProxyInfo,
   prop: string,
   value: any,
   port: MessagePort
 ) {
   const correlationId = generateUniqueId();
-  const message = {
-    correlationId: correlationId,
-    messageType: "ProxyAssignment",
-    property: prop,
-    objectId: objectId,
-    value: value,
-    source: "sandbox",
-    destination: "content",
-  };
+  const message = decorateMessageWithProxyInfo(
+    {
+      correlationId: correlationId,
+      messageType: "ProxyAssignment",
+      property: prop,
+      value: value,
+      source: "sandbox",
+      destination: "content",
+    },
+    node
+  );
 
   port.postMessage(message);
 
@@ -374,30 +404,26 @@ async function assignmentHandler(
   return true;
 }
 
+export type FunctionCallInfo =
+  | { objectId: string }
+  | { functionName: string };
 async function functionInvocationHandler<T>(
-  functionPath: string[],
-  prop: any,
-  objectId: string | undefined,
+  functionCallInfo: FunctionCallInfo,
   port: MessagePort,
   ...args: any[]
 ): Promise<T[keyof T]> {
-  if (prop === "then") {
-    console.error(
-      "then called directly on object in function invocation trap",
-      [...functionPath, prop]
-    );
-  }
   const correlationId = generateUniqueId();
 
-  const message = {
-    correlationId: correlationId,
-    messageType: "ProxyInvocation",
-    functionPath: [...functionPath, prop],
-    objectId: objectId,
-    payload: args,
-    source: "sandbox",
-    destination: "content",
-  };
+  const message = decorateMessageWithFunctionCallInfo(
+    {
+      correlationId: correlationId,
+      messageType: "ProxyInvocation",
+      payload: args,
+      source: "sandbox",
+      destination: "content",
+    },
+    functionCallInfo
+  );
 
   for (const key in message.payload) {
     // Convert functions to strings to avoid serialization issues
