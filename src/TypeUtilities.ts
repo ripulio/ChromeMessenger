@@ -266,7 +266,7 @@ function isProxy(
   return obj && obj[IS_PROXY];
 }
 
-function handleAsyncIteration(objectId: string | undefined, port: MessagePort) {
+export function handleAsyncIteration(iteratorId: string, port: MessagePort) {
   return async function* () {
     const getNext = async () => {
       const correlationId = generateUniqueId();
@@ -274,8 +274,7 @@ function handleAsyncIteration(objectId: string | undefined, port: MessagePort) {
         correlationId: correlationId,
         messageType: "ProxyInvocation",
         functionPath: ["next"],
-        objectId: objectId,
-        payload: [],
+        objectId: iteratorId,
         source: "sandbox",
         destination: "content",
       };

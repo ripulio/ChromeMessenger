@@ -3,6 +3,7 @@ import {
   getCallbackRegistry,
   createObjectWrapperWithCallbackRegistry,
   createRemoteFunctionWrapperWithCallbackRegistry,
+  handleAsyncIteration,
 } from "./TypeUtilities";
 import { resolveResponse } from "./AsyncResponseDirectory";
 import { createServiceWorkerApiWrapperForSandbox } from "./ServiceWorkerApiWrapper";
@@ -118,7 +119,7 @@ export function createSandboxDynamicCodeServer<
         }
 
         const returnValue = createObjectWrapperWithCallbackRegistry(
-          {kind: "objectId", value: event.data.objectId},
+          { kind: "objectId", value: event.data.objectId },
           callbackRegistry,
           port,
           event.data.iteratorId,
@@ -188,6 +189,9 @@ export function createSandboxDynamicCodeServer<
             if (["caches", "sessionStorage", "localStorage"].includes(key)) {
               return {};
             }
+            if (key === "Array") {
+              return getArrayWrapper(port);
+            }
             return (proxies as any)[key];
           });
           const extraArgValues = Object.values(runtimeArguments);
@@ -217,6 +221,28 @@ export function createSandboxDynamicCodeServer<
   window.addEventListener("message", initListener);
 }
 
+function getArrayWrapper(port: MessagePort) {
+  const ArrayWrapper = new Proxy(Array, {
+    get(target: any, prop: any) {
+      if (prop === "from") {
+        return async function (proxyObject: any) {
+          const result : any[] = [];
+          const iteratorFn = handleAsyncIteration(
+            proxyObject.iteratorId,
+            port
+          );
+          for await (const item of iteratorFn()) {
+            result.push(item);
+          }
+          return result;
+        };
+      }
+      return target[prop];
+    },
+  });
+  return ArrayWrapper;
+}
+
 async function executeCallback(
   callbackReference: string,
   args: any[],
@@ -230,7 +256,7 @@ async function executeCallback(
     const deserializedArgs = args.map((arg: any) => {
       if (arg.type === "objectReference") {
         return createObjectWrapperWithCallbackRegistry(
-          {kind: "objectId", value: arg.objectId},
+          { kind: "objectId", value: arg.objectId },
           callbackRegistry,
           port,
           arg.iteratorId,

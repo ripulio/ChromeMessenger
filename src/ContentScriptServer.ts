@@ -189,22 +189,22 @@ function executeComparison(
   console.log("Executing comparison", comparisonIdentifier, left, right);
 
   // Map TypeScript SyntaxKind values to comparison operations
-  switch (comparisonIdentifier) {
-    case "32": // EqualsEqualsToken
+  switch (Number(comparisonIdentifier)) {
+    case 32: // EqualsEqualsToken
       return left > right;
-    case "33": // EqualsEqualsEqualsToken
+    case 33: // EqualsEqualsEqualsToken
       return left <= right;
-    case "36": // ExclamationEqualsToken
+    case 36: // ExclamationEqualsToken
       return left != right;
-    case "35": // ExclamationEqualsEqualsToken
+    case 35: // ExclamationEqualsEqualsToken
       return left !== right;
-    case "30": // LessThanToken
+    case 30: // LessThanToken
       return left < right;
-    case "37": // LessThanEqualsToken
+    case 37: // LessThanEqualsToken
       return left === right;
-    case "34": // GreaterThanEqualsToken
+    case 34: // GreaterThanEqualsToken
       return left >= right;
-    case "57":
+    case 57:
       return left || right;
     default:
       console.warn(`Unknown comparison operator: ${comparisonIdentifier}`);
