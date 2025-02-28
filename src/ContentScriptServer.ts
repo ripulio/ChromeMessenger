@@ -119,6 +119,21 @@ export async function createContentScriptApiServer<T extends object>(
     );
     return true;
   });
+
+  // handle message from the page - from injected code
+  // this should only hit calls against the api
+  // weakly typed from the page side, so if contentscriptapi functions change, the corresponding
+  // injected code will need to change
+  window.addEventListener("message", (ev) => {
+    if (ev.data.type === "injected-code"){
+      executeFunctionCallFromPath(
+        ev.data.functionPath,
+        ev.data.payload,
+        api,
+        () => {}
+      );
+    }
+  });
 }
 
 async function getSandboxPort(): Promise<MessagePort> {
