@@ -134,6 +134,8 @@ export async function createContentScriptApiServer<T extends object>(
       );
     }
   });
+
+  await chrome.runtime.sendMessage({ type: "ContentScriptReady" });
 }
 
 async function getSandboxPort(): Promise<MessagePort> {
