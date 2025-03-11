@@ -18,7 +18,7 @@ export function createServiceWorkerApiWrapperForContentScript<T>(): T {
     };
 
     console.log(`Sending message: ${JSON.stringify(message)}`);
-    async function sendMessageWithRetry(message: any, maxRetries = 5, delay = 1000) {
+    async function sendMessageWithRetry(message: any, maxRetries = 5, delay = 2000) {
       for (let attempt = 1; attempt <= maxRetries; attempt++) {
         try {
           const response = await chrome.runtime.sendMessage(message);
@@ -35,7 +35,8 @@ export function createServiceWorkerApiWrapperForContentScript<T>(): T {
         }
       }
     }
-    return (await sendMessageWithRetry(message)).data;
+    const response =  (await sendMessageWithRetry(message));
+    return response.data;
   };
   return createObjectWrapper<T>(messageHandler, []) as T;
 }
