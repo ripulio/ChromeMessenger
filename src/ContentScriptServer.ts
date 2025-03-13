@@ -135,7 +135,8 @@ export async function createContentScriptApiServer<T extends object>(
     }
   });
 
-  await chrome.runtime.sendMessage({ type: "ContentScriptReady" });
+  // don't need to wait for this, it's just a notification
+  chrome.runtime.sendMessage({ type: "ContentScriptReady" });
 }
 
 async function getSandboxPort(): Promise<MessagePort> {
