@@ -17,13 +17,14 @@ export function createServiceWorkerApiWrapperForContentScript<T>(): T {
       payload: args,
     };
 
-    console.log(`Sending message: ${JSON.stringify(message)}`);
     async function sendMessageWithRetry(message: any, maxRetries = 5, delay = 2000) {
       for (let attempt = 1; attempt <= maxRetries; attempt++) {
         try {
+          console.log(`Sending message:`, message);
           const response = await chrome.runtime.sendMessage(message);
           return response;
         } catch (error) {
+          console.log(`Error sending message: `, error);
           // If it's the final attempt, throw the error.
           if (attempt === maxRetries) {
             throw error;
