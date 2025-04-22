@@ -15,12 +15,16 @@ export class ContentScriptMessenger {
     chrome.storage.local.get({ readyTabs: [] }).then((data) => {
       this.readyTabs = new Set<number>(data.readyTabs);
     });
-    
+
     // 1) Listen for contentScriptReady pings
     chrome.runtime.onMessage.addListener((msg, sender) => {
       if (msg.type === "ContentScriptReady" && sender.tab?.id != null) {
         this.markTabReady(sender.tab.id);
-        console.log("%cContentScriptReady: Tab %d registered as ready", "color: blue", sender.tab.id);
+        console.log(
+          "%cContentScriptReady: Tab %d registered as ready",
+          "color: blue",
+          sender.tab.id
+        );
       }
       return false;
     });

@@ -5,7 +5,6 @@ import {
 
 import { ContentScriptMessenger } from "./ContentScriptMessenger";
 
-
 export type TabTargetApiWrapper<T> = {
   forTab(tabId: number): T;
 };
