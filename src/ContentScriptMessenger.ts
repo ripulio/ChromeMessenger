@@ -9,8 +9,8 @@ function warn(...args: any[]) {
 }
 function logError(...args: any[]) {
   // Capture the stack trace but remove the first line (which is this function)
-  const stack = new Error().stack?.split('\n').slice(1).join('\n');
-  console.error("[ContentScriptMessenger]", ...args, '\n', stack);
+  const stack = new Error().stack?.split("\n").slice(1).join("\n");
+  console.error("[ContentScriptMessenger]", ...args, "\n", stack);
 }
 
 interface QueuedMessage {
@@ -26,55 +26,34 @@ export class ContentScriptMessenger {
   constructor() {
     // load persisted readyTabs
     chrome.storage.local.get({ readyTabs: [] }).then((data) => {
-      this.readyTabs = new Set<number>(data.readyTabs);
+      this.readyTabs = new Set(data.readyTabs);
     });
 
-    // 1) Listen for contentScriptReady pings
-    chrome.runtime.onMessage.addListener((msg, sender) => {
-      if (msg.type === "ContentScriptReady" && sender.tab?.id != null) {
-        this.markTabReady(sender.tab.id);
-        log(`ContentScriptReady: Tab ${sender.tab.id} registered as ready`);
-      }
-      return false;
-    });
-
-    // 2) Mark tab not ready on navigation start
-    chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
-      // Log all update events to better understand what's happening
-      if (!changeInfo) {
-        logError('Tab update event received with no changeInfo', { tabId });
+    // 1) Listen for contentScriptReadiness port connection
+    chrome.runtime.onConnect.addListener((port) => {
+      if (!port.name.startsWith("ContentScriptReadiness")) {
         return;
       }
-      
-      if (Object.keys(changeInfo).length === 0) {
-        warn('Tab update event received with empty changeInfo object', { tabId });
-      }
-      
-      log('Tab update event', { tabId, changeInfo });
-      
-      // Tab might be starting to load when:
-      // 1. changeInfo.status is "loading" (explicit loading status)
-      // 2. changeInfo.status is undefined (sometimes happens at the start of navigation)
-      // 3. changeInfo contains url property (url is changing)
-      if (changeInfo.status === "loading" || 
-          (changeInfo.hasOwnProperty('status') && typeof changeInfo.status === 'undefined') || 
-          changeInfo.url) {
-        log('Navigation started, marking tab not ready', { tabId, changeInfo });
-        this.markTabNotReady(tabId);
-      } else if (changeInfo.status === "complete") {
-        // We explicitly do NOT mark the tab as ready here because:
-        // 1. The content script hasn't necessarily loaded yet
-        // 2. We need to wait for the ContentScriptReady message
-        log('Tab finished loading, waiting for ContentScriptReady message', { tabId, changeInfo });
-      } else if (changeInfo.hasOwnProperty('status')) {
-        warn(`Unexpected status value: "${changeInfo.status}"`, { tabId, changeInfo });
-      }
+
+      const tabId = parseInt(port.name.split("-")[1]);
+      this.markTabReady(tabId);
+      port.onMessage.addListener((msg) => {
+        console.info("Received message from contentScriptReadiness port", {
+          tabId,
+          msg,
+        });
+      });
+      port.onDisconnect.addListener(() => {
+        this.unreadyTab(tabId);
+      });
     });
 
     // 3) Reject/clean up if tab closes while queued
     chrome.tabs.onRemoved.addListener((tabId) => {
-      log('Tab closed, marking tab not ready and rejecting queued messages', { tabId });
-      this.markTabNotReady(tabId);
+      log("Tab closed, marking tab not ready and rejecting queued messages", {
+        tabId,
+      });
+      this.removeTabRecord(tabId);
       const queue = this.messageQueues.get(tabId);
       if (queue) {
         queue.forEach((q) =>
@@ -95,14 +74,16 @@ export class ContentScriptMessenger {
     }
 
     // Otherwise queue it until we see a contentScriptReady ping
-    warn('Tab not in readyTabs, queuing message', {
+    warn("Tab not in readyTabs, queuing message", {
       tabId,
       message,
       readyTabs: Array.from(this.readyTabs),
-      messageQueues: this.messageQueues.has(tabId) ? this.messageQueues.get(tabId) : undefined,
+      messageQueues: this.messageQueues.has(tabId)
+        ? this.messageQueues.get(tabId)
+        : undefined,
       reason: this.readyTabs.has(tabId)
-        ? 'Tab was marked not ready after being ready'
-        : 'Tab has never been marked ready (no ContentScriptReady ping received?)',
+        ? "Tab was marked not ready after being ready"
+        : "Tab has never been marked ready (no ContentScriptReady ping received?)",
     });
     return new Promise<any>((resolve, reject) => {
       const queue = this.messageQueues.get(tabId) ?? [];
@@ -119,9 +100,12 @@ export class ContentScriptMessenger {
 
   // 3) Persist ready state whenever it changes:
   private markTabReady(tabId: number) {
-    log('Marking tab as ready', { tabId, readyTabs: Array.from(this.readyTabs) });
+    log("Marking tab as ready", {
+      tabId,
+      readyTabs: Array.from(this.readyTabs),
+    });
     this.readyTabs.add(tabId);
-    chrome.storage.local.set({ readyTabs: Array.from(this.readyTabs) });
+    chrome.storage.local.set({ readyTabs: this.readyTabs });
 
     const queue = this.messageQueues.get(tabId);
     if (queue) {
@@ -132,13 +116,26 @@ export class ContentScriptMessenger {
     }
   }
 
-  private markTabNotReady(tabId: number) {
-    log('Marking tab as not ready', { tabId, readyTabs: Array.from(this.readyTabs) });
+  private unreadyTab(tabId: number) {
+    log("Marking tab as unready", {
+      tabId,
+      readyTabs: Array.from(this.readyTabs),
+    });
     this.readyTabs.delete(tabId);
     chrome.storage.local.set({ readyTabs: Array.from(this.readyTabs) });
 
     if (!this.messageQueues.has(tabId)) {
       this.messageQueues.set(tabId, []);
     }
+  }
+
+  private removeTabRecord(tabId: number) {
+    log("Removing tab record", {
+      tabId,
+      readyTabs: Array.from(this.readyTabs),
+    });
+    this.readyTabs.delete(tabId);
+    chrome.storage.local.set({ readyTabs: Array.from(this.readyTabs) });
+    this.messageQueues.delete(tabId);
   }
 }
