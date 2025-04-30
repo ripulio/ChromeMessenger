@@ -6,12 +6,27 @@ import { generateUniqueId } from "./TypeUtilities";
 const objectStore = new Map<string, any>();
 let nextObjectId = 1;
 
+// Dedicated log function with fixed prefix
+function log(...args: any[]) {
+  console.log("[ContentScriptServer]", ...args);
+}
+function warn(...args: any[]) {
+  console.warn("[ContentScriptServer]", ...args);
+}
+function logError(...args: any[]) {
+  console.error("[ContentScriptServer]", ...args);
+}
+
 export async function createContentScriptApiServer<T extends object>(
   apiFactory: (port: MessagePort) => T,
   globalContext: typeof globalThis
 ): Promise<void> {
+  log('[ContentScriptServer] Starting content script API server initialization');
   const sandboxProxyPort = await getSandboxPort();
+  log('[ContentScriptServer] Obtained sandbox port, creating API instance');
   const api = apiFactory(sandboxProxyPort);
+  log('[ContentScriptServer] API instance created successfully');
+  
   const sandboxMessageHandler = (ev: MessageEvent<any>) => {
     const request = ev.data;
 
@@ -20,8 +35,9 @@ export async function createContentScriptApiServer<T extends object>(
       sandboxProxyPort.postMessage(response);
     };
 
-    console.log("Recieved message over port", ev);
+    log("Recieved message over port", ev);
     if (request.source === "sandbox") {
+      log(`[ContentScriptServer] Processing sandbox message type: ${request.messageType}`);
       switch (request.messageType) {
         case "ProxyAssignment":
           const assignmentResult = executeAssignment(
@@ -78,12 +94,12 @@ export async function createContentScriptApiServer<T extends object>(
           break;
 
         default:
-          console.warn(
+          warn(
             `Unhandled sandbox message type: ${request.messageType}`
           );
       }
     } else {
-      console.error(
+      logError(
         "Recieved non-sandboxed sourced message from sandbox, specify source and/or refactor this",
         request
       );
@@ -99,12 +115,15 @@ export async function createContentScriptApiServer<T extends object>(
       );
     }
   };
+  log('[ContentScriptServer] Setting up message event listener on sandbox port');
   sandboxProxyPort.addEventListener("message", sandboxMessageHandler);
   sandboxProxyPort.start();
+  log('[ContentScriptServer] Sandbox port message handling started');
 
   // for messages from the background?
+  log('[ContentScriptServer] Setting up Chrome runtime message listener');
   chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-    console.log("Content script recieved message from runtime", request);
+    log("Content script recieved message from runtime", request);
 
     // Handle non-proxy messages
     executeFunctionCallFromPath(
@@ -119,13 +138,16 @@ export async function createContentScriptApiServer<T extends object>(
     );
     return true;
   });
+  log('[ContentScriptServer] Chrome runtime message listener configured');
 
   // handle message from the page - from injected code
   // this should only hit calls against the api
   // weakly typed from the page side, so if contentscriptapi functions change, the corresponding
   // injected code will need to change
+  log('[ContentScriptServer] Setting up window message event listener for injected code');
   window.addEventListener("message", (ev) => {
     if (ev.data.type === "injected-code"){
+      log('[ContentScriptServer] Received injected-code message from page', ev.data);
       executeFunctionCallFromPath(
         ev.data.functionPath,
         ev.data.payload,
@@ -134,9 +156,19 @@ export async function createContentScriptApiServer<T extends object>(
       );
     }
   });
+  log('[ContentScriptServer] Window message event listener configured');
 
   // don't need to wait for this, it's just a notification
-  chrome.runtime.sendMessage({ type: "ContentScriptReady" });
+  log('[ContentScriptServer] Sending ContentScriptReady message to background');
+  chrome.runtime.sendMessage({ type: "ContentScriptReady" }, (response) => {
+    if (chrome.runtime.lastError) {
+      logError('[ContentScriptServer] Error sending ContentScriptReady:', chrome.runtime.lastError);
+    } else {
+      log('[ContentScriptServer] ContentScriptReady message acknowledged:', response);
+    }
+  });
+  // If in the future there is a condition where ContentScriptReady is not sent, add a log here explaining why.
+  log('[ContentScriptServer] Content script API server initialization complete');
 }
 
 async function getSandboxPort(): Promise<MessagePort> {
@@ -204,7 +236,7 @@ function executeComparison(
   left: any,
   right: any
 ) {
-  console.log("Executing comparison", comparisonIdentifier, left, right);
+  log("Executing comparison", comparisonIdentifier, left, right);
 
   // Map TypeScript SyntaxKind values to comparison operations
   switch (Number(comparisonIdentifier)) {
@@ -225,7 +257,7 @@ function executeComparison(
     case 57:
       return left || right;
     default:
-      console.warn(`Unknown comparison operator: ${comparisonIdentifier}`);
+      warn(`Unknown comparison operator: ${comparisonIdentifier}`);
       return false;
   }
 }
@@ -359,7 +391,7 @@ function argumentToEvent(argument: any): Event | null {
   }
   const eventConstructor = getEventConstructorByName(argument.eventType);
   if (!eventConstructor) {
-    console.error(`Unknown event type: ${argument.eventType}`);
+    logError(`Unknown event type: ${argument.eventType}`);
     return null;
   }
 
@@ -379,7 +411,7 @@ function returnError(
   message: string,
   createAndSendResponse: (response: any) => void
 ) {
-  console.error(message);
+  logError(message);
   createAndSendResponse({ error: message });
   return false;
 }
@@ -396,25 +428,27 @@ function executeFunctionCall(
     );
   }
 
-  console.log("Transforming events in payload", payload);
+  log("Transforming events in payload", payload);
   const eventedPayload = transformEventsInPayload(payload);
 
-  console.log("Executing function", targetFunction, eventedPayload);
+  log("Executing function", targetFunction, eventedPayload);
   try {
     const result = targetFunction(...eventedPayload);
     Promise.resolve(result)
       .then((resolvedResult: any) => {
-        console.log("Result for function", targetFunction, resolvedResult);
+        log("Result for function", targetFunction, resolvedResult);
         createAndSendResponse(resolvedResult);
       })
-      .catch((error: any) => {
-        console.error(`Error in ${targetFunction.toString()}:`, error);
-        createAndSendResponse({ error: error.message });
+      .catch((error: unknown) => {
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        logError(`Error in ${targetFunction.toString()}:`, errorMsg);
+        createAndSendResponse({ error: errorMsg });
       });
     return true;
-  } catch (error) {
-    console.error(`Error in ${targetFunction.toString()}:`, error);
-    createAndSendResponse({ error: error });
+  } catch (error: unknown) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    logError(`Error in ${targetFunction.toString()}:`, errorMsg);
+    createAndSendResponse({ error: errorMsg });
     return false;
   }
   // Indicate that we will send a response asynchronously
@@ -426,7 +460,7 @@ function executeFunctionCallFromPath(
   target: any,
   createAndSendResponse: (response: any) => void
 ): boolean {
-  console.log("Recieved function call", messagePath, payload, target);
+  log("Recieved function call", messagePath, payload, target);
 
   const functionName = messagePath[messagePath.length - 1];
   const functionToCall = target[functionName];
@@ -460,25 +494,27 @@ function executeFunctionCallFromPath(
     return false;
   }
 
-  console.log("Transforming events in payload", payload);
+  log("Transforming events in payload", payload);
   const eventedPayload = transformEventsInPayload(payload);
 
-  console.log("Executing function", functionToCall, eventedPayload);
+  log("Executing function", functionToCall, eventedPayload);
   try {
     const result = functionToCall.apply(target, eventedPayload);
     Promise.resolve(result)
       .then((resolvedResult: any) => {
-        console.log("Result for function", functionToCall, resolvedResult);
+        log("Result for function", functionToCall, resolvedResult);
         createAndSendResponse(resolvedResult);
       })
-      .catch((error: any) => {
-        console.error(`Error in ${messagePath.join(".")}:`, error);
-        createAndSendResponse({ error: error.message });
+      .catch((error: unknown) => {
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        logError(`Error in ${messagePath.join(".")}:`, errorMsg);
+        createAndSendResponse({ error: errorMsg });
       });
     return true;
-  } catch (error) {
-    console.error(`Error in ${messagePath.join(".")}:`, error);
-    createAndSendResponse({ error: error });
+  } catch (error: unknown) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    logError(`Error in ${messagePath.join(".")}:`, errorMsg);
+    createAndSendResponse({ error: errorMsg });
     return false;
   }
   // Indicate that we will send a response asynchronously
@@ -489,7 +525,7 @@ function executePropertyAccess(
   target: any,
   createAndSendResponse: (response: any) => void
 ) {
-  console.log("Recieved property access", property, target);
+  log("Recieved property access", property, target);
 
   let result = target[property];
   if (typeof result === "function") {
@@ -544,8 +580,9 @@ function createResponse(
       } else {
         resultMessage.data = JSON.stringify(result);
       }
-    } catch (error) {
-      console.error("Error serializing object", error);
+    } catch (error: unknown) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      logError("Error serializing object", errorMsg);
       throw error;
     }
   } else {
