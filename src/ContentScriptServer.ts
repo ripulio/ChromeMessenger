@@ -14,7 +14,9 @@ function warn(...args: any[]) {
   console.warn("[ContentScriptServer]", ...args);
 }
 function logError(...args: any[]) {
-  console.error("[ContentScriptServer]", ...args);
+  // Capture the stack trace but remove the first line (which is this function)
+  const stack = new Error().stack?.split('\n').slice(1).join('\n');
+  console.error("[ContentScriptServer]", ...args, '\n', stack);
 }
 
 export async function createContentScriptApiServer<T extends object>(
