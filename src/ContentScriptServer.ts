@@ -21,11 +21,11 @@ export async function createContentScriptApiServer<T extends object>(
   apiFactory: (port: MessagePort) => T,
   globalContext: typeof globalThis
 ): Promise<void> {
-  log('[ContentScriptServer] Starting content script API server initialization');
+  log('Starting content script API server initialization');
   const sandboxProxyPort = await getSandboxPort();
-  log('[ContentScriptServer] Obtained sandbox port, creating API instance');
+  log('Obtained sandbox port, creating API instance');
   const api = apiFactory(sandboxProxyPort);
-  log('[ContentScriptServer] API instance created successfully');
+  log('API instance created successfully');
   
   const sandboxMessageHandler = (ev: MessageEvent<any>) => {
     const request = ev.data;
@@ -37,7 +37,7 @@ export async function createContentScriptApiServer<T extends object>(
 
     log("Recieved message over port", ev);
     if (request.source === "sandbox") {
-      log(`[ContentScriptServer] Processing sandbox message type: ${request.messageType}`);
+      log(`Processing sandbox message type: ${request.messageType}`);
       switch (request.messageType) {
         case "ProxyAssignment":
           const assignmentResult = executeAssignment(
@@ -115,13 +115,13 @@ export async function createContentScriptApiServer<T extends object>(
       );
     }
   };
-  log('[ContentScriptServer] Setting up message event listener on sandbox port');
+  log('Setting up message event listener on sandbox port');
   sandboxProxyPort.addEventListener("message", sandboxMessageHandler);
   sandboxProxyPort.start();
-  log('[ContentScriptServer] Sandbox port message handling started');
+  log('Sandbox port message handling started');
 
   // for messages from the background?
-  log('[ContentScriptServer] Setting up Chrome runtime message listener');
+  log('Setting up Chrome runtime message listener');
   chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     log("Content script recieved message from runtime", request);
 
@@ -138,16 +138,16 @@ export async function createContentScriptApiServer<T extends object>(
     );
     return true;
   });
-  log('[ContentScriptServer] Chrome runtime message listener configured');
+  log('Chrome runtime message listener configured');
 
   // handle message from the page - from injected code
   // this should only hit calls against the api
   // weakly typed from the page side, so if contentscriptapi functions change, the corresponding
   // injected code will need to change
-  log('[ContentScriptServer] Setting up window message event listener for injected code');
+  log('Setting up window message event listener for injected code');
   window.addEventListener("message", (ev) => {
     if (ev.data.type === "injected-code"){
-      log('[ContentScriptServer] Received injected-code message from page', ev.data);
+      log('Received injected-code message from page', ev.data);
       executeFunctionCallFromPath(
         ev.data.functionPath,
         ev.data.payload,
@@ -156,19 +156,19 @@ export async function createContentScriptApiServer<T extends object>(
       );
     }
   });
-  log('[ContentScriptServer] Window message event listener configured');
+  log('Window message event listener configured');
 
   // don't need to wait for this, it's just a notification
-  log('[ContentScriptServer] Sending ContentScriptReady message to background');
+  log('Sending ContentScriptReady message to background');
   chrome.runtime.sendMessage({ type: "ContentScriptReady" }, (response) => {
     if (chrome.runtime.lastError) {
-      logError('[ContentScriptServer] Error sending ContentScriptReady:', chrome.runtime.lastError);
+      logError('Error sending ContentScriptReady:', chrome.runtime.lastError);
     } else {
-      log('[ContentScriptServer] ContentScriptReady message acknowledged:', response);
+      log('ContentScriptReady message acknowledged:', response);
     }
   });
   // If in the future there is a condition where ContentScriptReady is not sent, add a log here explaining why.
-  log('[ContentScriptServer] Content script API server initialization complete');
+  log('Content script API server initialization complete');
 }
 
 async function getSandboxPort(): Promise<MessagePort> {
