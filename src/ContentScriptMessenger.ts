@@ -26,7 +26,7 @@ export class ContentScriptMessenger {
   constructor() {
     // load persisted readyTabs
     chrome.storage.local.get({ readyTabs: [] }).then((data) => {
-      this.readyTabs = new Set(data.readyTabs);
+      this.readyTabs = new Set(Array.isArray(data.readyTabs) ? data.readyTabs : []);
     });
 
     // 1) Listen for contentScriptReadiness port connection
