@@ -36,7 +36,12 @@ export function createServiceWorkerApiWrapperForContentScript<T>(): T {
         }
       }
     }
+    
     const response =  (await sendMessageWithRetry(message));
+
+    if (response.error){
+      throw new Error(response.error);
+    }
     return response.data;
   };
   return createObjectWrapper<T>(messageHandler, []) as T;
