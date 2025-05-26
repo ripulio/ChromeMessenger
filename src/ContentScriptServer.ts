@@ -30,7 +30,7 @@ export async function createContentScriptApiServer<T extends object>(
   const api = apiFactory(sandboxProxyPort);
   log("API instance created successfully");
 
-  const sandboxMessageHandler = (ev: MessageEvent<any>) => {
+  const sandboxMessageHandler = async (ev: MessageEvent<any>) => {
     const request = ev.data;
 
     const createAndSendResponse = (result: any) => {
@@ -58,20 +58,60 @@ export async function createContentScriptApiServer<T extends object>(
           );
           createAndSendResponse(comparisonResult);
           return;
-        case "ProxyInvocation":
-          const functionToCall = request.objectId
-            ? objectStore.get(request.objectId)
-            : (globalContext as any)[request.functionName];
+        case "ProxyFunctionCall":
+          {
+            const globalFunction = (globalContext as any)[request.functionName];
 
-          executeFunctionCall(
-            functionToCall,
-            injectCallbackPropogationIntoPayload(
-              hydrateStoredObjectReferences(request.payload, objectStore),
-              request.sandboxTabId,
-              sandboxProxyPort
-            ),
-            createAndSendResponse
-          );
+            // Enhanced execution with special callback handling
+            await executeEnhancedFunctionCall(
+              globalFunction,
+              injectCallbackPropogationIntoPayload(
+                hydrateStoredObjectReferences(request.payload, objectStore),
+                request.sandboxTabId,
+                sandboxProxyPort
+              ),
+              createAndSendResponse,
+              globalContext,
+              request.functionName
+            );
+          }
+          break;
+        case "ProxyStoredFunctionCall":
+          {
+            const storedFunction = objectStore.get(request.objectId);
+
+            // Enhanced execution with special callback handling
+            await executeEnhancedFunctionCall(
+              storedFunction,
+              injectCallbackPropogationIntoPayload(
+                hydrateStoredObjectReferences(request.payload, objectStore),
+                request.sandboxTabId,
+                sandboxProxyPort
+              ),
+              createAndSendResponse,
+              undefined, // No specific target context for stored functions
+              `stored_function_${request.objectId}`
+            );
+          }
+          break;
+        case "ProxyMethodCall":
+          {
+            const targetObject = objectStore.get(request.objectId);
+            const methodFunction = targetObject[request.methodName];
+
+            // Enhanced execution with special callback handling
+            await executeEnhancedFunctionCall(
+              methodFunction.bind(targetObject),
+              injectCallbackPropogationIntoPayload(
+                hydrateStoredObjectReferences(request.payload, objectStore),
+                request.sandboxTabId,
+                sandboxProxyPort
+              ),
+              createAndSendResponse,
+              targetObject,
+              request.methodName
+            );
+          }
           break;
         case "ProxyPropertyAccess":
           const objectId = request.objectId;
@@ -701,4 +741,102 @@ function hasMethods(obj: any): boolean {
       (prop) => typeof obj[prop] === "function"
     ).length > 0
   );
+}
+
+// Special callback handling functions
+function needsSpecialCallbackHandling(target: any, functionName: string | undefined): boolean {
+  if (!functionName) return false;
+  
+  // List of known callback-based functions that don't return Promises
+  const callbackFunctions = new Set([
+    'forEach',
+    'setTimeout', 
+    'setInterval',
+    'addEventListener',
+    'removeEventListener',
+    'requestAnimationFrame',
+    'requestIdleCallback'
+  ]);
+
+  // Check if it's a known callback function
+  if (callbackFunctions.has(functionName)) {
+    return true;
+  }
+
+  // Check if it's an Array method that takes a callback but doesn't return Promise
+  if (Array.isArray(target) && typeof (target as any)[functionName] === 'function') {
+    const arrayCallbackMethods = ['forEach'];
+    return arrayCallbackMethods.includes(functionName);
+  }
+
+  return false;
+}
+
+async function transformForEachCall(array: any[], callback: (value: any, index: number, array: any[]) => any): Promise<undefined> {
+  // Transform forEach to Promise.all + map for proper async handling
+  await Promise.all(array.map(callback));
+  return undefined; // forEach returns undefined
+}
+
+async function transformSetTimeoutCall(callback: Function, delay: number): Promise<any> {
+  return new Promise<any>((resolve) => {
+    const timerId = setTimeout(async () => {
+      await callback();
+      resolve(timerId);
+    }, delay);
+  });
+}
+
+async function executeEnhancedFunctionCall(
+  targetFunction: Function,
+  payload: any[],
+  createAndSendResponse: (response: any) => void,
+  target?: any,
+  functionName?: string
+): Promise<void> {
+  if (targetFunction === undefined) {
+    returnError(
+      `Function ${targetFunction} not found on target.`,
+      createAndSendResponse
+    );
+    return;
+  }
+
+  log("Transforming events in payload", payload);
+  const eventedPayload = transformEventsInPayload(payload);
+
+  try {
+    let result: any;
+
+    // Check if this function needs special callback handling
+    if (target && functionName && needsSpecialCallbackHandling(target, functionName)) {
+      log(`Applying special handling for ${functionName}`);
+      
+      if (functionName === 'forEach' && Array.isArray(target)) {
+        // Transform forEach to wait for async callbacks
+        result = await transformForEachCall(target, eventedPayload[0]);
+      } else if (functionName === 'setTimeout') {
+        // Transform setTimeout to wait for async callback
+        result = await transformSetTimeoutCall(eventedPayload[0], eventedPayload[1]);
+      } else {
+        // Add more transformations as needed
+        log("Executing function with special handling (fallback)", targetFunction, eventedPayload);
+        result = targetFunction(...eventedPayload);
+      }
+    } else {
+      // Normal function execution
+      log("Executing function", targetFunction, eventedPayload);
+      result = targetFunction(...eventedPayload);
+    }
+
+    // Handle the result (same as current logic)
+    const resolvedResult = await Promise.resolve(result);
+    log("Result for function", targetFunction, resolvedResult);
+    createAndSendResponse(resolvedResult);
+    
+  } catch (error: unknown) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    logError(`Error in ${functionName || 'function'} execution:`, errorMsg);
+    createAndSendResponse({ error: errorMsg });
+  }
 }

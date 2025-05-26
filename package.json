@@ -1,18 +1,26 @@
 {
   "name": "chromemessenger",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "typesVersions": {
     "*": {
-      "*": ["dist/index.d.ts"],
-      "global": ["dist/chrome-global.d.ts"]
+      "*": [
+        "dist/index.d.ts"
+      ],
+      "global": [
+        "dist/chrome-global.d.ts"
+      ]
     }
   },
-  "description": "messaging framework to all natural method calling between all components of a chrome extension",
+  "description": "Production-ready messaging framework for natural method calling between all components of a chrome extension with sandboxed execution support",
   "scripts": {
-    "build": "tsc",
-    "test": "echo \\\"Error: no test specified\\\" && exit 1"
+    "build": "npm run clean && tsc",
+    "clean": "premove dist",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:ui": "vitest --ui",
+    "test:coverage": "vitest run --coverage"
   },
   "repository": {
     "type": "git",
@@ -25,13 +33,22 @@
     "chrome",
     "extensions",
     "messaging",
-    "async"
+    "async",
+    "sandbox",
+    "proxy",
+    "typescript"
   ],
   "author": "Peter Maude",
   "license": "ISC",
   "devDependencies": {
     "@types/chrome": "^0.0.299",
-    "@types/node": "^20.14.10"
+    "@types/jsdom": "^21.1.7",
+    "@types/node": "^20.14.10",
+    "@vitest/ui": "^2.1.8",
+    "happy-dom": "^15.11.6",
+    "jsdom": "^26.1.0",
+    "premove": "^4.0.0",
+    "vitest": "^2.1.8"
   },
   "dependencies": {
     "typescript": "^5.5.3"
