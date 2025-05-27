@@ -22,11 +22,6 @@ export { createSandboxDynamicCodeServer } from './SandboxDynamicCodeServer';
 
 export { TabTargetApiWrapper } from './ContentScriptApiWrapper';
 
-/**
- * @deprecated This interface will be moved to dynamic-ts-transformer in v2.0.
- */
-export { IContentScriptTranspilationProxy } from './SandboxDynamicCodeServer';
-
 // Refactored architecture exports
 // Core services
 export { Logger, LogLevel } from './core/Logger.js';
@@ -46,34 +41,11 @@ export { ResponseFactory } from './core/ResponseFactory.js';
 // Data management
 export { ObjectStore, ObjectReference } from './ObjectStore.js';
 export { Serializer, shouldSerialize } from './Serialization.js';
-export { ComparisonEngine, ComparisonOperator } from './ComparisonEngine.js';
-
-// Message system
-export { 
-  MessageRouter,
-  MessageHandler,
-  SandboxMessage,
-  ProxyPropertyAccessMessage,
-  ProxyFunctionCallMessage,
-  ProxyMethodCallMessage,
-  ProxyComparisonMessage,
-  ProxyAssignmentMessage,
-  SandboxCallbackMessage
-} from './MessageTypes.js';
-
-// Message handlers
-export { PropertyAccessHandler } from './handlers/PropertyAccessHandler.js';
-export { InvocationHandler, FunctionCallHandler, MethodCallHandler, DefaultEventTransformer } from './handlers/InvocationHandler.js';
-export { ComparisonHandler } from './handlers/ComparisonHandler.js';
-export { AssignmentHandler } from './handlers/AssignmentHandler.js';
 
 // Utilities
 export { generateUniqueId } from './TypeUtilities.js';
 export { resolveResponse, waitForResponse } from './AsyncResponseDirectory.js';
-
-// Response types
-export { IterableResponse } from './Messages/IterableResponse.js';
-export { ObjectReferenceResponse } from './Messages/ObjectReferenceResponse.js';
+export { IContentScriptTranspilationProxy } from './SandboxDynamicCodeServer';
 
 // Refactored server
 export { 
