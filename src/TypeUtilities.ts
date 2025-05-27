@@ -509,13 +509,17 @@ export function transformArg(
       return registerCallback(arg, callbackRegistry);
     case "object":
       if (!arg) return arg;
-      const objectId = isProxy(arg);
-      if (objectId) {
+      const proxyInfo = isProxy(arg);
+      if (proxyInfo) {
+        // Extract the actual ID string from the proxy info object
+        const objectId = "objectId" in proxyInfo ? proxyInfo.objectId : proxyInfo.name;
         return { type: "objectReference", objectId };
       }
       if (arg.type === "assignment") {
-        const objectId = isProxy(arg.value);
-        if (objectId) {
+        const proxyInfo = isProxy(arg.value);
+        if (proxyInfo) {
+          // Extract the actual ID string from the proxy info object
+          const objectId = "objectId" in proxyInfo ? proxyInfo.objectId : proxyInfo.name;
           return {
             ...arg,
             value: { type: "objectReference", objectId },
