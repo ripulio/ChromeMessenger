@@ -36,17 +36,66 @@ function createThenableCallableProxy(
             .catch((error) => reject(error));
         };
       }
+      // If the property being accessed is "isProxy", return the node info.
+      // This is needed by the transpiler to check if the object is a proxy.
+      if (property === "isProxy") {
+        return node;
+      }
+      
+      // Handle Symbol properties that are commonly accessed during serialization
+      if (typeof property === "symbol") {
+        // Return undefined for Symbol properties to avoid errors during JSON.stringify
+        // and other operations that inspect objects
+        return undefined;
+      }
+      
+      // Handle specific properties that are accessed during serialization
+      if (property === "toJSON" || property === "valueOf" || property === "toString") {
+        // Return undefined to indicate these methods don't exist
+        return undefined;
+      }
+      
       // For any other property, delegate to the target.
       throw new Error(
-        `get for property ${property} on ThenableCallable - this should only be called or awaited (get -> then)`
+        `get for property ${String(property)} on ThenableCallable - this should only be called or awaited (get -> then)`
       );
     },
     // Intercept calls to the function.
     apply(target, thisArg, args) {
+      // Transform arguments before calling functionInvocationHandler
+      // This is the same pattern used in createRemoteFunctionWrapperWithCallbackRegistry
+      // and createFunctionWrapperWithCallbackRegistry
+      const callbackRegistry = getCallbackRegistry();
+      const wrappedArgs = args.map((arg: any) =>
+        transformArg(arg, callbackRegistry)
+      );
+      
+      // Determine the function call info based on the node type
+      let functionCallInfo: FunctionCallInfo;
+      if (node.kind === "objectId") {
+        // For method calls on stored objects, include both objectId and methodName
+        functionCallInfo = { objectId: node.value, methodName: originalProperty };
+      } else {
+        // For global objects with kind "name", we need to distinguish between:
+        // 1. Global functions (like setTimeout) - should use ProxyFunctionCall
+        // 2. Methods on global objects (like document.createElement) - should use ProxyMethodCall
+        
+        // Special case: if the node.value is a known global object name, treat as method call
+        const globalObjectNames = new Set(['document', 'window', 'console', 'navigator']);
+        
+        if (globalObjectNames.has(node.value)) {
+          // This is a method on a global object (e.g., document.createElement)
+          functionCallInfo = { objectId: node.value, methodName: originalProperty };
+        } else {
+          // This is a global function (e.g., setTimeout)
+          functionCallInfo = { functionName: originalProperty };
+        }
+      }
+      
       return functionInvocationHandler(
-        { functionName: originalProperty },
+        functionCallInfo,
         port,
-        ...args
+        ...wrappedArgs
       );
     },
   });
@@ -63,62 +112,15 @@ export function createObjectWrapperWithCallbackRegistry(
   iteratorId?: string,
   data?: any
 ) {
-  /*
-  const oldhandler = {
-    get(target: any, prop: any, reciever: any) {
-      if (propIsProxy(prop)) {
-        return objectId;
-      }
-      if (typeof prop === "symbol") {
-        if (prop === Symbol.iterator || prop === Symbol.asyncIterator) {
-          return handleAsyncIteration(iteratorId, port);
-        }
-        if (prop === Symbol.toStringTag) {
-          console.error("toStringTag called directly on object in get trap");
-          return data.toString();
-        }
-        if (prop === Symbol.toPrimitive) {
-          return (hint: string) => (hint === "number" ? data : data.toString());
-        }
-      }
-
-      if (prop !== "then") {
-        throw new Error(`get called on object in get trap property ${prop}`);
-      }
-
-      return createFunctionProxy(
-        prop,
-        node,
-        callbackRegistry,
-        (prop === "done" || prop === "next") && iteratorId
-          ? iteratorId
-          : objectId,
-        data,
-        port
-      );
-    },
-    apply(target: any, thisArg: any, args: any[]) {
-      console.error("apply called on object in get trap", thisArg);
-      return undefined;
-    },
-    [Symbol.toStringTag]: () => data.toString(),
-    toString: () => data.toString(),
-    valueOf: () => data.valueOf(),
-    [Symbol.toPrimitive]: (hint: string) => {
-      // hint can be 'number', 'string', or 'default'
-      return hint === "number" ? data : data.toString();
-    },
-  };
-  */
   const createProxy = (handler: ProxyHandler<any>) => {
     return new Proxy(
       {
         [IS_PROXY]: node,
-        toString: () => data.toString(),
-        valueOf: () => data.valueOf(),
-        [Symbol.toStringTag]: data?.toString(),
+        toString: () => data?.toString?.() ?? '[object Object]',
+        valueOf: () => data?.valueOf?.() ?? data,
+        [Symbol.toStringTag]: data?.toString?.() ?? '[object Object]',
         [Symbol.toPrimitive]: (hint: string) =>
-          hint === "number" ? data : data.toString(),
+          hint === "number" ? data : (data?.toString?.() ?? '[object Object]'),
       },
       handler
     );
@@ -160,6 +162,35 @@ export function createRemoteFunctionWrapperWithCallbackRegistry<T>(
         { objectId: objectId },
         port,
         ...wrappedArgs
+      );
+    },
+    get(target: any, property: string, receiver: any) {
+      // Handle then property for awaiting the result
+      if (property === "then") {
+        // This means someone is trying to await the result of calling this stored function
+        // We should return undefined because this proxy represents the function itself,
+        // not a promise. The actual promise is returned by the apply handler.
+        return undefined;
+      }
+      
+      // Handle isProxy property for transpiled code detection
+      if (property === "isProxy") {
+        return { objectId: objectId };
+      }
+      
+      // Handle Symbol properties that are commonly accessed during serialization
+      if (typeof property === "symbol") {
+        return undefined;
+      }
+      
+      // Handle specific properties that are accessed during serialization
+      if (property === "toJSON" || property === "valueOf" || property === "toString") {
+        return undefined;
+      }
+      
+      // For any other property access, throw an error to maintain security
+      throw new Error(
+        `get for property ${String(property)} on ThenableCallable - this should only be called or awaited (get -> then)`
       );
     },
   };
@@ -302,20 +333,6 @@ export function handleAsyncIteration(iteratorId: string, port: MessagePort) {
     }
   };
 }
-function decorateMessageWithFunctionCallInfo<T>(
-  message: T,
-  node: FunctionCallInfo
-): T {
-  if ("objectId" in node) {
-    (message as any).objectId = node.objectId;
-  } else {
-    (message as any).functionName = node.functionName;
-    if ("objectName" in node) {
-      (message as any).objectName = node.objectName;
-    }
-  }
-  return message;
-}
 function decorateMessageWithProxyInfo<T>(message: T, node: ProxyInfo): T {
   if (node.kind === "objectId") {
     (message as any).objectId = node.value;
@@ -404,7 +421,7 @@ async function assignmentHandler(
 }
 
 export type FunctionCallInfo =
-  | { objectId: string }
+  | { objectId: string; methodName?: string }
   | { functionName: string };
 async function functionInvocationHandler<T>(
   functionCallInfo: FunctionCallInfo,
@@ -413,16 +430,43 @@ async function functionInvocationHandler<T>(
 ): Promise<T[keyof T]> {
   const correlationId = generateUniqueId();
 
-  const message = decorateMessageWithFunctionCallInfo(
-    {
+  let message: any;
+  
+  if ("objectId" in functionCallInfo) {
+    if (functionCallInfo.methodName) {
+      // Method call on stored object
+      message = {
+        correlationId: correlationId,
+        messageType: "ProxyMethodCall",
+        objectId: functionCallInfo.objectId,
+        methodName: functionCallInfo.methodName,
+        payload: args,
+        source: "sandbox",
+        destination: "content",
+      };
+    } else {
+      // Function call on stored function object (like obj_24)
+      // This should be treated as a ProxyStoredFunctionCall, not ProxyFunctionCall
+      message = {
+        correlationId: correlationId,
+        messageType: "ProxyStoredFunctionCall",
+        objectId: functionCallInfo.objectId,
+        payload: args,
+        source: "sandbox",
+        destination: "content",
+      };
+    }
+  } else {
+    // Global function call
+    message = {
       correlationId: correlationId,
-      messageType: "ProxyInvocation",
+      messageType: "ProxyFunctionCall",
+      functionName: functionCallInfo.functionName,
       payload: args,
       source: "sandbox",
       destination: "content",
-    },
-    functionCallInfo
-  );
+    };
+  }
 
   for (const key in message.payload) {
     // Convert functions to strings to avoid serialization issues
