@@ -1,5 +1,7 @@
 // service-worker.ts
 
+import { ExtensionPageMessenger } from "./ExtensionPageMessenger";
+
 // Dedicated log function with fixed prefix
 function log(...args: any[]) {
   console.log("[ContentScriptMessenger]", ...args);
@@ -15,15 +17,18 @@ function logError(...args: any[]) {
 
 interface QueuedMessage {
   message: any;
-  resolve: (res: any) => void;
-  reject: (err: any) => void;
+  resolve: (value: any) => void;
+  reject: (reason: any) => void;
 }
 
 export class ContentScriptMessenger {
   private readyTabs = new Set<number>();
   private messageQueues = new Map<number, QueuedMessage[]>();
+  private extensionPageMessenger: ExtensionPageMessenger;
 
   constructor() {
+    this.extensionPageMessenger = ExtensionPageMessenger.getInstance();
+    
     // load persisted readyTabs
     chrome.storage.local.get({ readyTabs: [] }).then((data) => {
       this.readyTabs = new Set(Array.isArray(data.readyTabs) ? data.readyTabs : []);
@@ -65,10 +70,25 @@ export class ContentScriptMessenger {
   }
 
   /**
+   * Check if a tab is ready (either content script or extension page)
+   */
+  private isTabReady(tabId: number): boolean {
+    return this.readyTabs.has(tabId) || this.extensionPageMessenger.isExtensionTabReady(tabId);
+  }
+
+  /**
    * Sends a message to the content script in `tabId`, returning a Promise
    * that resolves with the response once the CS is actually listening.
+   * Now also handles extension pages.
    */
   public sendMessage(tabId: number, message: any): Promise<any> {
+    // Check if it's an extension page first
+    if (this.extensionPageMessenger.isExtensionTabReady(tabId)) {
+      log("Sending message to extension page", { tabId, message });
+      return this.extensionPageMessenger.sendMessageToExtensionPage(tabId, message);
+    }
+
+    // Handle regular content script tabs
     if (this.readyTabs.has(tabId)) {
       return this._doSend(tabId, message);
     }
@@ -78,6 +98,7 @@ export class ContentScriptMessenger {
       tabId,
       message,
       readyTabs: Array.from(this.readyTabs),
+      extensionTabs: Array.from(this.extensionPageMessenger['readyExtensionTabs'] || []),
       messageQueues: this.messageQueues.has(tabId)
         ? this.messageQueues.get(tabId)
         : undefined,
