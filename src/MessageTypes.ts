@@ -59,6 +59,12 @@ export interface SandboxCallbackMessage extends BaseMessage {
   args: any[];
 }
 
+export interface SandboxCallbackResponseMessage extends BaseMessage {
+  messageType: 'sandboxCallbackResponse';
+  data?: any;
+  error?: any;
+}
+
 export type SandboxMessage = 
   | ProxyPropertyAccessMessage
   | ProxyFunctionCallMessage
@@ -66,7 +72,8 @@ export type SandboxMessage =
   | ProxyMethodCallMessage
   | ProxyComparisonMessage
   | ProxyAssignmentMessage
-  | SandboxCallbackMessage;
+  | SandboxCallbackMessage
+  | SandboxCallbackResponseMessage;
 
 // Message handlers with proper typing
 export interface MessageHandler<T extends BaseMessage> {

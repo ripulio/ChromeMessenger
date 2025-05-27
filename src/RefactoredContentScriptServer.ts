@@ -1,4 +1,4 @@
-import { MessageRouter, SandboxMessage } from './MessageTypes.js';
+import { MessageRouter, SandboxMessage, SandboxCallbackResponseMessage } from './MessageTypes.js';
 import { ObjectStore } from './ObjectStore.js';
 import { Serializer } from './Serialization.js';
 import { ComparisonEngine } from './ComparisonEngine.js';
@@ -10,12 +10,15 @@ import {
   ErrorCodes 
 } from './core/ErrorHandling.js';
 import { ResponseFactory } from './core/ResponseFactory.js';
+import { resolveResponse, waitForResponse } from './AsyncResponseDirectory.js';
+import { generateUniqueId } from './TypeUtilities.js';
 
 // Import handlers
 import { PropertyAccessHandler, PropertyAccessContext } from './handlers/PropertyAccessHandler.js';
 import { InvocationHandler, InvocationContext, DefaultEventTransformer } from './handlers/InvocationHandler.js';
 import { ComparisonHandler, ComparisonContext } from './handlers/ComparisonHandler.js';
 import { AssignmentHandler, AssignmentContext } from './handlers/AssignmentHandler.js';
+import { StoredFunctionCallHandler, StoredFunctionCallContext } from './handlers/StoredFunctionCallHandler.js';
 
 export interface ContentScriptServerConfig {
   logLevel?: LogLevel;
@@ -135,6 +138,16 @@ export class RefactoredContentScriptServer<T extends object> {
       new InvocationHandler(invocationContext)
     );
 
+    // Stored function call handler
+    const storedFunctionCallContext: StoredFunctionCallContext = {
+      ...sharedContext,
+      eventTransformer: (payload) => this.eventTransformer.transformPayload(payload)
+    };
+    this.messageRouter.register(
+      'ProxyStoredFunctionCall',
+      new StoredFunctionCallHandler(storedFunctionCallContext)
+    );
+
     // Comparison handler
     const comparisonContext: ComparisonContext = {
       ...sharedContext,
@@ -189,9 +202,36 @@ export class RefactoredContentScriptServer<T extends object> {
 
   private async handleSandboxMessage(request: SandboxMessage): Promise<void> {
     try {
-      const result = await this.messageRouter.route(request);
-      const response = this.responseFactory.createResponse(result, request.correlationId);
-      this.sandboxPort!.postMessage(response);
+      // Handle special case for sandbox callback responses
+      if (request.messageType === 'sandboxCallbackResponse') {
+        const callbackRequest = request as SandboxCallbackResponseMessage;
+        resolveResponse(
+          callbackRequest.correlationId,
+          undefined,
+          callbackRequest.data,
+          callbackRequest.error
+        );
+        return; // No response needed for callback responses
+      }
+
+      // Inject callback propagation for messages that have payloads and sandboxTabId
+      if ('payload' in request && 'sandboxTabId' in request) {
+        const processedRequest = {
+          ...request,
+          payload: this.injectCallbackPropagationIntoPayload(
+            this.hydrateStoredObjectReferences(request.payload),
+            request.sandboxTabId,
+            this.sandboxPort!
+          )
+        };
+        const result = await this.messageRouter.route(processedRequest);
+        const response = this.responseFactory.createResponse(result, request.correlationId);
+        this.sandboxPort!.postMessage(response);
+      } else {
+        const result = await this.messageRouter.route(request);
+        const response = this.responseFactory.createResponse(result, request.correlationId);
+        this.sandboxPort!.postMessage(response);
+      }
     } catch (error) {
       this.errorHandler.handle(error instanceof Error ? error : new Error(String(error)));
       this.sendErrorResponse(request.correlationId, error);
@@ -205,9 +245,16 @@ export class RefactoredContentScriptServer<T extends object> {
 
     // Handle legacy function path calls
     if (request.functionPath) {
+      // Inject callback propagation into payload like the original server
+      const processedPayload = this.injectCallbackPropagationIntoPayload(
+        request.payload,
+        request.sandboxTabId,
+        this.sandboxPort!
+      );
+
       const result = await this.executeFunctionFromPath(
         request.functionPath,
-        request.payload,
+        processedPayload,
         this.api
       );
       
@@ -395,6 +442,87 @@ export class RefactoredContentScriptServer<T extends object> {
     this.logger.info('Garbage collection completed', {
       remainingObjects: this.objectStore.getSize()
     });
+  }
+
+  // Callback handling methods (ported from original server)
+  private injectCallbackPropagationIntoPayload(
+    payload: any,
+    sandboxTabId: number,
+    port: MessagePort
+  ): any {
+    for (const key in payload) {
+      if (
+        typeof payload[key] === "string" &&
+        payload[key].startsWith("__callback__|")
+      ) {
+        const callbackReference = payload[key];
+        payload[key] = this.createCallback(callbackReference, sandboxTabId, port);
+      }
+    }
+    return payload;
+  }
+
+  private createCallback(
+    callbackReference: string,
+    sandboxTabId: number,
+    port: MessagePort
+  ) {
+    const correlationId = generateUniqueId();
+    return async (...args: any[]) => {
+      port.postMessage({
+        callbackReference: callbackReference,
+        sandboxTabId: sandboxTabId,
+        messageType: "sandboxCallback",
+        correlationId: correlationId,
+        args: args.map((arg) => {
+          if (typeof arg === "object") {
+            return {
+              type: "objectReference",
+              objectId: this.objectStore.store(arg).objectId,
+              value: this.stringifyEvent(arg),
+            };
+          }
+          return arg;
+        }),
+      });
+      const result = await waitForResponse<any>(correlationId);
+      return result.proxy;
+    };
+  }
+
+  private stringifyEvent(e: any) {
+    const obj: any = {};
+    for (let k in e) {
+      obj[k] = e[k];
+    }
+    return JSON.stringify(
+      obj,
+      (k, v) => {
+        if (v instanceof Node) return undefined;
+        if (v instanceof Window) return undefined;
+        return v;
+      },
+      " "
+    );
+  }
+
+  private hydrateStoredObjectReferences(
+    payload: any
+  ): any {
+    for (const key in payload) {
+      const arg = payload[key];
+      if (typeof arg === "object") {
+        // replace objectReference with actual object
+        if (arg !== null && arg.type === "objectReference") {
+          payload[key] = this.objectStore.retrieve(arg.objectId);
+        } else {
+          // recursively inject object references
+          payload[key] = this.hydrateStoredObjectReferences(arg);
+        }
+      }
+    }
+
+    return payload;
   }
 }
 

@@ -6,12 +6,12 @@ import {
 import { ContentScriptMessenger } from "./ContentScriptMessenger";
 
 export type TabTargetApiWrapper<T> = {
-  forTab(tabId: number): T;
+  forTab(tabId: number): PromisifyNonPromiseMethods<T>;
 };
 
 export function createContentScriptApiWrapperForServiceWorker<
   T
->(): TabTargetApiWrapper<PromisifyNonPromiseMethods<T>> {
+>(): TabTargetApiWrapper<T> {
   const messenger = new ContentScriptMessenger();
 
   const tabTargetApiWrapper = {

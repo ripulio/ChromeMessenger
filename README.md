@@ -1,192 +1,362 @@
 # ChromeMessenger
 
-A sophisticated Chrome extension framework that enables **dynamic JavaScript execution in sandboxed environments** while providing **transparent access to DOM and browser APIs** through a proxy-based messaging system.
+A production-ready messaging framework for natural method calling between all components of a Chrome extension with sandboxed execution support.
 
 ## Overview
 
-ChromeMessenger solves the fundamental Chrome extension security constraint where dynamic code can only run in sandboxed iframes but needs to interact with the main page context. It provides a seamless bridge between these contexts through runtime code transformation and intelligent proxy objects.
-
-## Core Architecture
-
-### Dual-Context Execution Model
-- **Sandbox Context**: Where dynamic user code runs (sandboxed iframe)
-- **Content Script Context**: Where actual DOM/API operations are executed (main page)
-- **Communication Bridge**: MessagePort-based messaging between contexts
-
-### Key Components
-
-#### 1. **TypeUtilities.ts** - Proxy Object System
-Creates intelligent proxy objects that route operations through the messaging system:
-- `ThenableCallableProxy`: Function-like objects that can be both called and awaited
-- `ObjectWrapper`: Wraps remote objects with proxy handlers
-- `FunctionWrapper`: Direct wrappers for global functions
-- **Serialization Safety**: All proxy objects support JSON serialization and debugging
-
-#### 2. **ContentScriptServer.ts** - Execution Engine
-The content script that:
-- Maintains an object store mapping IDs to actual DOM/API objects
-- Executes operations in the main page context
-- Handles callback functions and event propagation
-- Transforms arguments between proxy and real objects
-
-#### 3. **SandboxDynamicCodeServer.ts** - Sandbox Environment
-Provides the sandboxed execution environment with:
-- Proxy object factory for all global objects
-- Callback registry for functions callable from content script
-- Dynamic function creation with injected proxy objects
-
-## Message Protocol
-
-### Message Types
-
-The system uses a typed message protocol with these key message types:
-
-#### `ProxyFunctionCall`
-Used for **direct global function calls**:
-```typescript
-// Example: setTimeout(callback, 1000)
-{
-  messageType: "ProxyFunctionCall",
-  functionName: "setTimeout",
-  payload: [callback, 1000]
-}
-```
-
-#### `ProxyMethodCall` 
-Used for **method calls on objects** (both stored and global):
-```typescript
-// Example: document.createElement('div')
-{
-  messageType: "ProxyMethodCall", 
-  objectId: "document",
-  methodName: "createElement",
-  payload: ['div']
-}
-
-// Example: storedArray.forEach(callback)
-{
-  messageType: "ProxyMethodCall",
-  objectId: "array123",
-  methodName: "forEach", 
-  payload: [callback]
-}
-```
-
-#### `ProxyStoredFunctionCall`
-Used for **calling stored function objects**:
-```typescript
-// Example: calling a stored createElement function
-{
-  messageType: "ProxyStoredFunctionCall",
-  objectId: "obj_19", // The stored function object
-  payload: ['table']
-}
-```
-
-### How Message Types Are Determined
-
-The system automatically determines the correct message type based on **how the proxy object was created**:
-
-#### Path 1: Direct Global Functions
-```typescript
-// User code: setTimeout(callback, 1000)
-// ↓ ObjectWrapperFactory detects typeof setTimeout === "function"
-// ↓ Creates: FunctionWrapperWithCallbackRegistry({ functionName: "setTimeout" })
-// ↓ Results in: ProxyFunctionCall { functionName: "setTimeout" }
-```
-
-#### Path 2: Global Object Methods  
-```typescript
-// User code: document.createElement('div')
-// ↓ ObjectWrapperFactory creates: { kind: "name", value: "document" }
-// ↓ Property access creates: ThenableCallableProxy("createElement", { kind: "name", value: "document" })
-// ↓ Since "document" is in globalObjectNames set: ProxyMethodCall
-```
-
-#### Path 3: Stored Object Methods
-```typescript
-// User code: array.forEach(callback) 
-// ↓ Proxy created with: { kind: "objectId", value: "array123" }
-// ↓ Results in: ProxyMethodCall { objectId: "array123", methodName: "forEach" }
-```
-
-#### Path 4: Stored Function Objects
-```typescript
-// User code: createElement('table') where createElement is a stored function
-// ↓ Proxy created with: createRemoteFunctionWrapperWithCallbackRegistry("obj_19")
-// ↓ Results in: ProxyStoredFunctionCall { objectId: "obj_19" }
-```
-
-## Runtime Code Transformation
-
-Works in conjunction with the [dynamic-ts-transformer](../dynamic-ts-transformer) to:
-- Convert synchronous calls to asynchronous operations
-- Inject proxy detection logic (`isProxy` property access)
-- Transform function calls into async IIFEs
-- Handle iterators and comparisons
+ChromeMessenger enables seamless communication between different parts of a Chrome extension (background scripts, content scripts, popups, and sandboxed environments) using a natural, promise-based API that feels like direct method calls.
 
 ## Key Features
 
-### Transparent Async Conversion
-All DOM/API operations become asynchronous but appear synchronous in source code.
+- **Natural Method Calling**: Call methods across extension boundaries as if they were local
+- **Promise-Based**: Full async/await support with proper error handling
+- **Sandboxed Execution**: Safe code execution in isolated environments
+- **Type Safety**: Full TypeScript support with proper type inference
+- **Automatic Serialization**: Handles complex objects, functions, and DOM elements
+- **Transpilation Services**: Built-in TypeScript transpilation with caching
+- **Error Handling**: Comprehensive error handling and debugging support
 
-### Callback Propagation  
-Functions passed as arguments are registered in the sandbox and can be invoked from the content script.
+## Installation
 
-### Object Lifecycle Management
-Objects are stored with unique IDs, with automatic serialization/deserialization for primitive values.
+```bash
+npm install chromemessenger
+```
 
-### Serialization Safety
-- All proxy objects can be safely serialized with `JSON.stringify()`
-- Debugging tools can inspect proxy objects without errors
-- Transpiled code can access `isProxy` properties for conditional logic
+## Quick Start
+
+### 1. Background Script Setup
+
+```typescript
+import { createContentScriptApiWrapper, createServiceWorkerApiServer } from 'chromemessenger';
+
+// Create API wrapper for communicating with content scripts
+const contentScriptApi = createContentScriptApiWrapper<IContentScriptApi>();
+
+// Create server to handle incoming calls from content scripts
+const backgroundServer = createServiceWorkerApiServer({
+  async getData(query: string): Promise<any[]> {
+    // This method can be called from content scripts
+    return await fetch(`/api/data?q=${query}`).then(r => r.json());
+  },
+  
+  async processData(data: any): Promise<string> {
+    // Process data and return result
+    return `Processed: ${JSON.stringify(data)}`;
+  }
+});
+```
+
+### 2. Content Script Setup
+
+```typescript
+import { createServiceWorkerApiWrapper, createContentScriptApiServer } from 'chromemessenger';
+
+// Create API wrapper for communicating with background script
+const backgroundApi = createServiceWorkerApiWrapper<IBackgroundApi>();
+
+// Create server to handle incoming calls from background script
+const contentScriptServer = createContentScriptApiServer({
+  async getPageData(): Promise<any> {
+    // This method can be called from background script
+    return {
+      title: document.title,
+      url: window.location.href,
+      elements: document.querySelectorAll('div').length
+    };
+  },
+  
+  async clickElement(selector: string): Promise<boolean> {
+    const element = document.querySelector(selector) as HTMLElement;
+    if (element) {
+      element.click();
+      return true;
+    }
+    return false;
+  }
+});
+
+// Call background script methods naturally
+const data = await backgroundApi.getData('search term');
+const result = await backgroundApi.processData(data);
+```
+
+### 3. Sandboxed Execution
+
+```typescript
+import { 
+  createSandboxDynamicCodeServer
+} from 'chromemessenger';
+import { 
+  DynamicTsTranspilerFactory, 
+  TranspilationService,
+  SandboxEnvironment 
+} from 'dynamic-ts-transpiler';
+
+// Set up transpilation service
+const transpilerFactory = new DynamicTsTranspilerFactory();
+const transpilationService = new TranspilationService(transpilerFactory);
+
+// Create sandbox environment
+const sandboxEnv = new SandboxEnvironment({
+  sandboxUrl: chrome.runtime.getURL('sandbox.html'),
+  allowedOrigins: [chrome.runtime.getURL('')]
+});
+
+// Create sandbox server for dynamic code execution
+const sandboxServer = createSandboxDynamicCodeServer(
+  transpilationService,
+  sandboxEnv
+);
+
+// Execute TypeScript code in sandbox
+const code = `
+  const result = await fetch('/api/data');
+  const data = await result.json();
+  return data.map(item => item.name);
+`;
+
+const result = await sandboxServer.executeCode(code, {
+  sourceUrl: 'dynamic-execution',
+  globalProxyNames: ['fetch', 'console'],
+  wrapInAsyncIIFE: true
+});
+```
+
+## Core Components
+
+### API Wrappers
+
+Create type-safe wrappers for cross-extension communication:
+
+```typescript
+// For calling content script methods from background
+const contentScriptApi = createContentScriptApiWrapper<IContentScriptApi>();
+
+// For calling background methods from content script  
+const backgroundApi = createServiceWorkerApiWrapper<IBackgroundApi>();
+
+// For calling methods in sandboxed environments
+const sandboxApi = createServiceWorkerApiWrapperForSandbox<ISandboxApi>();
+```
+
+### API Servers
+
+Create servers to handle incoming method calls:
+
+```typescript
+// Background script server
+const backgroundServer = createServiceWorkerApiServer(implementationObject);
+
+// Content script server
+const contentScriptServer = createContentScriptApiServer(implementationObject);
+
+// Sandbox proxy server
+const sandboxServer = createSandboxProxyServer(implementationObject);
+```
+
+### Transpilation Service
+
+Handle TypeScript transpilation with caching using the dynamic-ts-transformer service:
+
+```typescript
+import { TranspilationService, TranspilationOptions, DynamicTsTranspilerFactory } from 'dynamic-ts-transpiler';
+
+const transpilerFactory = new DynamicTsTranspilerFactory();
+const transpilationService = new TranspilationService(transpilerFactory);
+
+const transpiledCode = await transpilationService.transpileCode(
+  'const x: number = 42; console.log(x);',
+  {
+    sourceUrl: 'my-script',
+    globalProxyNames: ['console'],
+    debug: false,
+    sourceMap: true,
+    wrapInAsyncIIFE: true
+  }
+);
+```
+
+### Sandbox Environment
+
+Manage sandboxed execution environments:
+
+```typescript
+import { SandboxEnvironment, SandboxEnvironmentConfig } from 'dynamic-ts-transpiler';
+
+const config: SandboxEnvironmentConfig = {
+  sandboxUrl: chrome.runtime.getURL('sandbox.html'),
+  allowedOrigins: [chrome.runtime.getURL('')],
+  timeout: 30000
+};
+
+const sandboxEnv = new SandboxEnvironment(config);
+const iframe = await sandboxEnv.createSandboxIframe();
+```
+
+## Advanced Features
+
+### Object Serialization
+
+ChromeMessenger automatically handles complex object serialization:
+
+```typescript
+// DOM elements, functions, and complex objects are automatically serialized
+const result = await contentScriptApi.processElement(document.body, {
+  callback: (data) => console.log(data),
+  metadata: { timestamp: Date.now(), nested: { value: 42 } }
+});
+```
 
 ### Error Handling
-Comprehensive error propagation between contexts with stack trace preservation.
 
-## Usage Example
+Comprehensive error handling with detailed debugging information:
 
-```javascript
-// User writes normal JavaScript:
-const table = document.createElement('table');
-const row = table.insertRow();
-row.addEventListener('click', () => console.log('clicked'));
-
-// System automatically:
-// 1. Transpiles code to use async proxies
-// 2. Sends ProxyMethodCall for document.createElement('table')  
-// 3. Sends ProxyMethodCall for table.insertRow()
-// 4. Sends ProxyMethodCall for row.addEventListener() with callback registration
-// 5. Content script executes actual DOM operations
-// 6. Results flow back as proxy objects for continued use
+```typescript
+try {
+  const result = await backgroundApi.riskyOperation();
+} catch (error) {
+  if (error instanceof ServerError) {
+    console.log('Error code:', error.code);
+    console.log('Error details:', error.details);
+  }
+}
 ```
 
-## Recent Improvements
+### Type Utilities
 
-### Fixed Issues (v1.1.0)
-- ✅ **Message Type Determination**: Fixed incorrect `ProxyFunctionCall` vs `ProxyStoredFunctionCall` routing
-- ✅ **Serialization Support**: Proxy objects now support JSON serialization and debugging
-- ✅ **Transpiler Compatibility**: Fixed `isProxy` property access for transpiled conditional logic
-- ✅ **Error Handling**: Improved error messages and stack trace preservation
+Utility types for better TypeScript integration:
 
-### Architecture Enhancements
-- Robust message type determination based on proxy creation context
-- Safe serialization properties (`toJSON`, `valueOf`, `toString` return `undefined`)
-- Maintained security boundaries while improving usability
+```typescript
+import { PromisifyNonPromiseMethods } from 'chromemessenger';
 
-## Architecture Documentation
+interface MyApi {
+  syncMethod(): string;
+  asyncMethod(): Promise<number>;
+}
 
-See [PHASE1_REFACTORING.md](./PHASE1_REFACTORING.md) for details on the service-oriented architecture refactoring.
-
-## Testing
-
-Run the comprehensive test suite:
-```bash
-npm test
+// Converts sync methods to async while preserving already async methods
+type PromisifiedApi = PromisifyNonPromiseMethods<MyApi>;
+// Result: { syncMethod(): Promise<string>; asyncMethod(): Promise<number>; }
 ```
 
-The tests include detailed scenarios for message type determination, proxy behavior, serialization safety, and error handling.
+## Configuration
 
-## Status
+### Transpilation Options
 
-The system is **production-ready** with all major architectural issues resolved. The proxy system correctly handles all message types, supports debugging and serialization, and maintains security boundaries.
+Transpilation options are provided by dynamic-ts-transformer:
+
+```typescript
+import { TranspilationOptions } from 'dynamic-ts-transpiler';
+
+interface TranspilationOptions {
+  sourceUrl?: string;              // Source URL for debugging
+  globalProxyNames?: string[];     // Global objects to proxy
+  globalNonProxyNames?: string[];  // Global objects to exclude from proxying
+  debug?: boolean;                 // Enable debug mode
+  sourceMap?: boolean;             // Generate source maps
+  wrapInAsyncIIFE?: boolean;      // Wrap code in async IIFE
+}
+```
+
+### Sandbox Environment Config
+
+Sandbox environment configuration is provided by dynamic-ts-transformer:
+
+```typescript
+import { SandboxEnvironmentConfig } from 'dynamic-ts-transpiler';
+
+interface SandboxEnvironmentConfig {
+  sandboxUrl: string;              // URL to sandbox HTML file
+  allowedOrigins: string[];        // Allowed origins for postMessage
+  timeout?: number;                // Execution timeout in milliseconds
+}
+```
+
+## Best Practices
+
+1. **Define Clear Interfaces**: Create TypeScript interfaces for your APIs
+2. **Handle Errors Gracefully**: Always wrap API calls in try-catch blocks
+3. **Use Transpilation Service**: Leverage caching for better performance
+4. **Sandbox Untrusted Code**: Always execute dynamic code in sandboxed environments
+5. **Minimize Data Transfer**: Keep serialized objects as small as possible
+
+## Examples
+
+### Complete Extension Setup
+
+```typescript
+// background.ts
+import { createContentScriptApiWrapper, createServiceWorkerApiServer } from 'chromemessenger';
+
+interface IContentScriptApi {
+  getPageInfo(): Promise<{ title: string; url: string }>;
+  clickElement(selector: string): Promise<boolean>;
+}
+
+interface IBackgroundApi {
+  fetchData(url: string): Promise<any>;
+  saveData(data: any): Promise<void>;
+}
+
+const contentScriptApi = createContentScriptApiWrapper<IContentScriptApi>();
+
+const backgroundServer = createServiceWorkerApiServer<IBackgroundApi>({
+  async fetchData(url: string) {
+    const response = await fetch(url);
+    return response.json();
+  },
+  
+  async saveData(data: any) {
+    await chrome.storage.local.set({ data });
+  }
+});
+
+// content-script.ts
+import { createServiceWorkerApiWrapper, createContentScriptApiServer } from 'chromemessenger';
+
+const backgroundApi = createServiceWorkerApiWrapper<IBackgroundApi>();
+
+const contentScriptServer = createContentScriptApiServer<IContentScriptApi>({
+  async getPageInfo() {
+    return {
+      title: document.title,
+      url: window.location.href
+    };
+  },
+  
+  async clickElement(selector: string) {
+    const element = document.querySelector(selector) as HTMLElement;
+    if (element) {
+      element.click();
+      return true;
+    }
+    return false;
+  }
+});
+
+// Usage
+const pageInfo = await backgroundApi.fetchData('/api/page-info');
+await backgroundApi.saveData(pageInfo);
+```
+
+## Dependencies
+
+- `dynamic-ts-transpiler`: TypeScript transpilation engine (peer dependency for transpilation services)
+
+## License
+
+ISC
+
+## Deprecation Notice
+
+⚠️ **Some components are being deprecated** as we move towards a cleaner architecture. See [DEPRECATION_GUIDE.md](./DEPRECATION_GUIDE.md) for migration paths and timelines.
+
+**Key Changes:**
+- `TranspilationService` moved to `dynamic-ts-transformer`
+- `SandboxEnvironment` moved to `dynamic-ts-transformer`  
+- `createContentScriptApiServer` → `RefactoredContentScriptServer`
+- Several internal utilities will be removed from public API
+
+## Contributing
+
+This library is part of a larger Chrome extension development framework. For issues and contributions, please refer to the main project repository.

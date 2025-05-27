@@ -94,8 +94,9 @@ export class ResponseFactory {
     // Serialize if needed
     if (needsSerialization) {
       try {
-        const serialized = this.options.serializer.serialize(result);
-        response.data = JSON.stringify(serialized);
+        // Use makeObjectCloneable approach like the original server to prevent toString errors
+        const cloneableObject = this.makeObjectCloneable(result);
+        response.data = JSON.stringify(cloneableObject);
       } catch (error) {
         this.options.logger.warn('Serialization failed, storing as reference only', {
           error: error instanceof Error ? error.message : String(error),
@@ -182,5 +183,33 @@ export class ResponseFactory {
       correlationId,
       data
     };
+  }
+
+  // TODO: This is a hack to prevent circular references and functions from being serialized.
+  // When we need the objects in the iframe, revisit this.
+  // This matches the original server's makeObjectCloneable function to prevent toString errors
+  private makeObjectCloneable(data: any): any {
+    if (data === undefined || data === null || typeof data === "function") {
+      return undefined;
+    }
+
+    if (Array.isArray(data)) {
+      return { length: data.length };
+    }
+
+    if (typeof data === "object") {
+      const obj: any = {};
+
+      for (let key in data) {
+        obj[key] =
+          typeof data[key] === "object" || typeof data[key] === "function"
+            ? undefined
+            : data[key];
+      }
+
+      return obj;
+    }
+
+    return data;
   }
 } 

@@ -116,11 +116,11 @@ export function createObjectWrapperWithCallbackRegistry(
     return new Proxy(
       {
         [IS_PROXY]: node,
-        toString: () => data.toString(),
-        valueOf: () => data.valueOf(),
-        [Symbol.toStringTag]: data?.toString(),
+        toString: () => data?.toString?.() ?? '[object Object]',
+        valueOf: () => data?.valueOf?.() ?? data,
+        [Symbol.toStringTag]: data?.toString?.() ?? '[object Object]',
         [Symbol.toPrimitive]: (hint: string) =>
-          hint === "number" ? data : data.toString(),
+          hint === "number" ? data : (data?.toString?.() ?? '[object Object]'),
       },
       handler
     );
