@@ -18,6 +18,12 @@ export function createServiceWorkerApiServer<T extends object>(
       return true;
     }
 
+    // Check if this is a message without messageType (like REGISTER_EXTENSION_PAGE)
+    if (!request.messageType) {
+      console.log("Message received without messageType, not handled by ServiceWorkerApiServer", request);
+      return false; // Let other listeners handle this message
+    }
+
     const messagePath: string[] = request.messageType;
 
     let target: any = serviceWorkerApi;
