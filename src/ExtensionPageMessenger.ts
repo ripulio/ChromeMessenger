@@ -8,7 +8,6 @@ export interface ExtensionPageApi {
   executeCode(code: string, transpile?: boolean): Promise<any>;
   getPageDom(selector?: string): Promise<string>;
   minimizeDOM(selector?: string, options?: any): Promise<string>;
-  getReadableDom(): Promise<string>;
   prepareDom(): Promise<void>;
   // Add other methods as needed
 }
@@ -107,16 +106,6 @@ export class ExtensionPageMessenger {
         return response;
       },
 
-      async getReadableDom(): Promise<string> {
-        log("Sending getReadableDom to extension page", { tabId });
-        const response = await chrome.tabs.sendMessage(tabId, {
-          type: "EXTENSION_PAGE_API_CALL",
-          method: "getReadableDom",
-          args: []
-        });
-        return response;
-      },
-
       async prepareDom(): Promise<void> {
         log("Sending prepareDom to extension page", { tabId });
         await chrome.tabs.sendMessage(tabId, {
@@ -186,4 +175,4 @@ export class ExtensionPageMessenger {
     this.readyExtensionTabs.delete(tabId);
     this.extensionPageApis.delete(tabId);
   }
-} 
+}
