@@ -10,6 +10,7 @@
     "inlineSources": true,
     "outDir": "./dist",
     "rootDir": "./src",
+    "types": ["chrome"],
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
