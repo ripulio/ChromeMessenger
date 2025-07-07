@@ -2,7 +2,7 @@
   "compilerOptions": {
     "target": "ESNext",
     "lib": ["dom", "ESNext"],
-    "types": ["chrome", "node"],
+    "types": ["chrome"],
     "module": "ESNext",
     "declaration": true,
     "declarationMap": true,
