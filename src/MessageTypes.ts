@@ -9,14 +9,12 @@ export interface ProxyFunctionCallMessage extends BaseMessage {
   messageType: 'ProxyFunctionCall';
   functionName: string;
   payload: any[];
-  sandboxTabId: number;
 }
 
 export interface ProxyStoredFunctionCallMessage extends BaseMessage {
   messageType: 'ProxyStoredFunctionCall';
   objectId: string;
   payload: any[];
-  sandboxTabId: number;
 }
 
 export interface ProxyMethodCallMessage extends BaseMessage {
@@ -24,7 +22,6 @@ export interface ProxyMethodCallMessage extends BaseMessage {
   objectId: string;
   methodName: string;
   payload: any[];
-  sandboxTabId: number;
 }
 
 export interface ProxyPropertyAccessMessage extends BaseMessage {
