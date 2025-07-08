@@ -40,7 +40,16 @@ export function createServiceWorkerApiWrapperForContentScript<T>(): T {
     const response =  (await sendMessageWithRetry(message));
 
     if (response.error){
-      throw new Error(response.error);
+      // If error is already a stringified object, parse it
+      let errorToThrow;
+      try {
+        errorToThrow = JSON.parse(response.error);
+        console.log('[ServiceWorkerApiWrapper] Parsed error object:', errorToThrow);
+      } catch (e) {
+        // Not JSON, create a new error
+        errorToThrow = new Error(response.error);
+      }
+      throw errorToThrow;
     }
     return response.data;
   };
