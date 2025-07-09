@@ -36,7 +36,7 @@ export class StoredFunctionCallHandler implements MessageHandler<ProxyStoredFunc
         );
       }
 
-      const processedPayload = this.processPayload(message.payload, message.sandboxTabId);
+      const processedPayload = this.processPayload(message.payload);
       const result = await this.executeStoredFunction(storedFunction, processedPayload);
       
       this.context.logger.debug('Stored function call completed', {
@@ -53,7 +53,7 @@ export class StoredFunctionCallHandler implements MessageHandler<ProxyStoredFunc
     }
   }
 
-  private processPayload(payload: any[], sandboxTabId: number): any[] {
+  private processPayload(payload: any[]): any[] {
     let processedPayload = payload;
 
     // Transform events if transformer is available

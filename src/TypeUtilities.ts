@@ -1,4 +1,5 @@
 import { waitForResponse } from "./AsyncResponseDirectory";
+import { ProxyFunctionCallMessage, ProxyMethodCallMessage, ProxyStoredFunctionCallMessage } from "./MessageTypes";
 
 export type Function = (...args: any[]) => unknown;
 
@@ -131,6 +132,12 @@ export function createObjectWrapperWithCallbackRegistry(
       if (property === "then") {
         return undefined;
       }
+      if (typeof property === "symbol" && property === Symbol.asyncIterator) {
+        if (!iteratorId) {
+          throw new Error("Object is not iterable.");
+        }
+        return handleAsyncIteration(iteratorId, port);
+      }
       if (property === "isProxy") {
         return node;
       }
@@ -138,6 +145,7 @@ export function createObjectWrapperWithCallbackRegistry(
         return (property: string, value: any) =>
           assignmentHandler(node, property, value, port);
       }
+      if (property === "Symbol(Symbol.asyncIterator)")
       if (property === "__compare") {
         return (value: any, operatorKind: number) =>
           comparisonHandler(node, value, operatorKind, port);
@@ -243,9 +251,7 @@ function createFunctionProxy(
   const proxyInfo = objectId ? {objectId: objectId} : {name: prop};
   return new Proxy(function () {}, {
     apply(target: any, thisArg: any, args: any[]) {
-      if (typeof prop === "symbol" && prop === Symbol.asyncIterator) {
-        return handleAsyncIteration(objectId, port);
-      }
+
 
       if (typeof prop === "symbol" && prop === Symbol.iterator) {
         console.error("iterator called directly on object in apply trap", [
@@ -301,13 +307,12 @@ export function handleAsyncIteration(iteratorId: string, port: MessagePort) {
   return async function* () {
     const getNext = async () => {
       const correlationId = generateUniqueId();
-      const message = {
+      const message : ProxyStoredFunctionCallMessage = {
         correlationId: correlationId,
-        messageType: "ProxyInvocation",
-        functionPath: ["next"],
+        messageType: "ProxyStoredFunctionCall",
         objectId: iteratorId,
+        payload: [],
         source: "sandbox",
-        destination: "content",
       };
 
       port.postMessage(message);
@@ -329,7 +334,7 @@ export function handleAsyncIteration(iteratorId: string, port: MessagePort) {
       if (done) {
         return;
       }
-      yield await value.value();
+      yield await value.value;
     }
   };
 }
@@ -430,7 +435,7 @@ async function functionInvocationHandler<T>(
 ): Promise<T[keyof T]> {
   const correlationId = generateUniqueId();
 
-  let message: any;
+  let message: ProxyStoredFunctionCallMessage | ProxyMethodCallMessage | ProxyFunctionCallMessage;
   
   if ("objectId" in functionCallInfo) {
     if (functionCallInfo.methodName) {
@@ -442,7 +447,6 @@ async function functionInvocationHandler<T>(
         methodName: functionCallInfo.methodName,
         payload: args,
         source: "sandbox",
-        destination: "content",
       };
     } else {
       // Function call on stored function object (like obj_24)
@@ -453,7 +457,6 @@ async function functionInvocationHandler<T>(
         objectId: functionCallInfo.objectId,
         payload: args,
         source: "sandbox",
-        destination: "content",
       };
     }
   } else {
@@ -464,7 +467,6 @@ async function functionInvocationHandler<T>(
       functionName: functionCallInfo.functionName,
       payload: args,
       source: "sandbox",
-      destination: "content",
     };
   }
 

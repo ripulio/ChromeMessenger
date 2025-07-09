@@ -1,9 +1,8 @@
 // Separate object store management
 export interface ObjectReference {
   objectId: string;
-  type: 'object' | 'function' | 'primitive';
+  type: "object" | "function" | "primitive";
   metadata?: {
-    isIterable?: boolean;
     iteratorId?: string;
     serializedData?: string;
   };
@@ -22,7 +21,7 @@ export class ObjectStore {
     if (obj === undefined || obj === null) {
       return {
         objectId: "null",
-        type: 'primitive'
+        type: "primitive",
       };
     }
 
@@ -31,27 +30,18 @@ export class ObjectStore {
 
     const reference: ObjectReference = {
       objectId,
-      type: typeof obj === 'function' ? 'function' : 'object'
+      type: typeof obj === "function" ? "function" : "object",
     };
 
     // Add metadata for iterables (but don't recursively store the iterator to avoid infinite recursion)
     if (this.isIterable(obj)) {
-      try {
-        const iterator = obj[Symbol.iterator]();
-        // Store the iterator directly without recursion
-        const iteratorId = `obj_${this.nextId++}`;
-        this.objectMap.set(iteratorId, iterator);
-        
-        reference.metadata = {
-          isIterable: true,
-          iteratorId
-        };
-      } catch (error) {
-        // If iterator creation fails, just mark as iterable without iterator ID
-        reference.metadata = {
-          isIterable: true
-        };
-      }
+      const iterator = obj[Symbol.iterator]().next.bind(obj[Symbol.iterator]());
+      // Store the iterator directly without recursion
+      const iteratorId = `obj_${this.nextId++}`;
+      this.objectMap.set(iteratorId, iterator);
+      reference.metadata = {
+        iteratorId
+      };
     }
 
     return reference;
@@ -80,9 +70,11 @@ export class ObjectStore {
   }
 
   private isIterable(obj: any): boolean {
-    return obj !== undefined && 
-           obj !== null && 
-           typeof obj[Symbol.iterator] === 'function';
+    return (
+      obj !== undefined &&
+      obj !== null &&
+      typeof obj[Symbol.iterator] === "function"
+    );
   }
 
   // Garbage collection for unused objects
@@ -103,4 +95,4 @@ export class ObjectStore {
   getObjectIds(): string[] {
     return Array.from(this.objectMap.keys());
   }
-} 
+}

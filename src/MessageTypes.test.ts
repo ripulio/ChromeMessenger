@@ -65,7 +65,6 @@ describe('MessageTypes', () => {
         source: 'sandbox',
         functionName: 'testFunc',
         payload: [],
-        sandboxTabId: 123
       };
 
       const propertyResult = await router.route(propertyMessage);
@@ -141,7 +140,6 @@ describe('MessageTypes', () => {
         source: 'sandbox',
         functionName: 'testFunc',
         payload: [1, 2, 3],
-        sandboxTabId: 123
       };
 
       expect(validMessage.messageType).toBe('ProxyFunctionCall');
@@ -161,7 +159,6 @@ describe('MessageTypes', () => {
         objectId: 'obj_1',
         methodName: 'testMethod',
         payload: [1, 2, 3],
-        sandboxTabId: 123
       };
 
       expect(validMessage.messageType).toBe('ProxyMethodCall');

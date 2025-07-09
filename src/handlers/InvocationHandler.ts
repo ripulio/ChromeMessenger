@@ -37,7 +37,7 @@ export class FunctionCallHandler implements MessageHandler<ProxyFunctionCallMess
         );
       }
 
-      const processedPayload = this.processPayload(message.payload, message.sandboxTabId);
+      const processedPayload = this.processPayload(message.payload);
       const result = await this.executeFunction(targetFunction, processedPayload);
       
       this.context.logger.debug('Function call completed', {
@@ -54,7 +54,7 @@ export class FunctionCallHandler implements MessageHandler<ProxyFunctionCallMess
     }
   }
 
-  private processPayload(payload: any[], sandboxTabId: number): any[] {
+  private processPayload(payload: any[]): any[] {
     let processedPayload = payload;
 
     // Transform events if transformer is available
@@ -130,7 +130,7 @@ export class MethodCallHandler implements MessageHandler<ProxyMethodCallMessage>
         );
       }
 
-      const processedPayload = this.processPayload(message.payload, message.sandboxTabId);
+      const processedPayload = this.processPayload(message.payload);
       const result = await this.executeMethod(targetObject, targetMethod, processedPayload);
       
       this.context.logger.debug('Method call completed', {
@@ -149,7 +149,7 @@ export class MethodCallHandler implements MessageHandler<ProxyMethodCallMessage>
     }
   }
 
-  private processPayload(payload: any[], sandboxTabId: number): any[] {
+  private processPayload(payload: any[]): any[] {
     let processedPayload = payload;
 
     // Transform events if transformer is available

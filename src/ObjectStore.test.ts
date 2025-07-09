@@ -39,7 +39,6 @@ describe('ObjectStore', () => {
       const iterable = [1, 2, 3];
       const result = objectStore.store(iterable);
 
-      expect(result.metadata?.isIterable).toBe(true);
       expect(result.metadata?.iteratorId).toBeDefined();
     });
   });

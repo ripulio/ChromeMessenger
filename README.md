@@ -90,7 +90,7 @@ import {
   DynamicTsTranspilerFactory, 
   TranspilationService,
   SandboxEnvironment 
-} from 'dynamic-ts-transpiler';
+} from 'ts-transpiler';
 
 // Set up transpilation service
 const transpilerFactory = new DynamicTsTranspilerFactory();

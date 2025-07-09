@@ -220,7 +220,6 @@ export class RefactoredContentScriptServer<T extends object> {
           ...request,
           payload: this.injectCallbackPropagationIntoPayload(
             this.hydrateStoredObjectReferences(request.payload),
-            request.sandboxTabId,
             this.sandboxPort!
           )
         };
@@ -248,7 +247,6 @@ export class RefactoredContentScriptServer<T extends object> {
       // Inject callback propagation into payload like the original server
       const processedPayload = this.injectCallbackPropagationIntoPayload(
         request.payload,
-        request.sandboxTabId,
         this.sandboxPort!
       );
 
@@ -447,7 +445,6 @@ export class RefactoredContentScriptServer<T extends object> {
   // Callback handling methods (ported from original server)
   private injectCallbackPropagationIntoPayload(
     payload: any,
-    sandboxTabId: number,
     port: MessagePort
   ): any {
     for (const key in payload) {
@@ -456,7 +453,7 @@ export class RefactoredContentScriptServer<T extends object> {
         payload[key].startsWith("__callback__|")
       ) {
         const callbackReference = payload[key];
-        payload[key] = this.createCallback(callbackReference, sandboxTabId, port);
+        payload[key] = this.createCallback(callbackReference, port);
       }
     }
     return payload;
@@ -464,14 +461,12 @@ export class RefactoredContentScriptServer<T extends object> {
 
   private createCallback(
     callbackReference: string,
-    sandboxTabId: number,
     port: MessagePort
   ) {
     const correlationId = generateUniqueId();
     return async (...args: any[]) => {
       port.postMessage({
         callbackReference: callbackReference,
-        sandboxTabId: sandboxTabId,
         messageType: "sandboxCallback",
         correlationId: correlationId,
         args: args.map((arg) => {
