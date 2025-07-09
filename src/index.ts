@@ -49,8 +49,8 @@ export { IContentScriptTranspilationProxy } from './SandboxDynamicCodeServer';
 
 // Refactored server
 export { 
-  RefactoredContentScriptServer,
+  ContentScriptServer as RefactoredContentScriptServer,
   createRefactoredContentScriptServer,
   ContentScriptServerConfig
-} from './RefactoredContentScriptServer.js';
+} from './ContentScriptServer.js';
 export { ExtensionPageMessenger, ExtensionPageApi } from './ExtensionPageMessenger';
