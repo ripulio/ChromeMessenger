@@ -53,4 +53,4 @@ export {
   createRefactoredContentScriptServer,
   ContentScriptServerConfig
 } from './ContentScriptServer.js';
-export { ExtensionPageMessenger, ExtensionPageApi } from './ExtensionPageMessenger';
+export { ExtensionPageMessenger, IExtensionPageApi } from './ExtensionPageMessenger';
