@@ -3,7 +3,7 @@ const log = (...args: any[]) =>
 const warn = (...args: any[]) =>
   console.warn("[ExtensionPageMessenger]", ...args);
 
-export interface ExtensionPageApi {
+export interface IExtensionPageApi {
   runAgent(config?: any): Promise<void>;
   executeCode(code: string, transpile?: boolean): Promise<any>;
   getPageDom(selector?: string): Promise<string>;
@@ -18,7 +18,7 @@ export interface ExtensionPageApi {
  */
 export class ExtensionPageMessenger {
   private static instance: ExtensionPageMessenger | null = null;
-  private extensionPageApis = new Map<number, ExtensionPageApi>();
+  private extensionPageApis = new Map<number, IExtensionPageApi>();
   private readyExtensionTabs = new Set<number>();
 
   private constructor() {
@@ -65,7 +65,7 @@ export class ExtensionPageMessenger {
     log("Registering extension page API", { tabId });
     
     // Create a proxy API that sends messages to the extension page
-    const api: ExtensionPageApi = {
+    const api: IExtensionPageApi = {
       async runAgent(config?: any): Promise<void> {
         log("Sending runAgent to extension page", { tabId, config });
         // Send message to the extension page tab
@@ -130,7 +130,7 @@ export class ExtensionPageMessenger {
   /**
    * Get the API for an extension page tab
    */
-  public getExtensionPageApi(tabId: number): ExtensionPageApi | undefined {
+  public getExtensionPageApi(tabId: number): IExtensionPageApi | undefined {
     return this.extensionPageApis.get(tabId);
   }
 

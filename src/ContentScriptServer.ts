@@ -27,7 +27,7 @@ export interface ContentScriptServerConfig {
   serializationMaxDepth?: number;
 }
 
-export class RefactoredContentScriptServer<T extends object> {
+export class ContentScriptServer<T extends object> {
   private readonly logger: Logger;
   private readonly objectStore: ObjectStore;
   private readonly serializer: Serializer;
@@ -527,8 +527,8 @@ export async function createRefactoredContentScriptServer<T extends object>(
   globalContext: typeof globalThis,
   getTabId: () => Promise<number>,
   config?: ContentScriptServerConfig
-): Promise<RefactoredContentScriptServer<T>> {
-  const server = new RefactoredContentScriptServer(apiFactory, globalContext, getTabId, config);
+): Promise<ContentScriptServer<T>> {
+  const server = new ContentScriptServer(apiFactory, globalContext, getTabId, config);
   await server.start();
   return server;
 } 
