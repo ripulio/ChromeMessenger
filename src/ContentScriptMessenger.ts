@@ -69,7 +69,11 @@ export class ContentScriptMessenger {
    * that resolves with the response once the CS is actually listening.
    * Now also handles extension pages.
    */
-  public sendMessage(tabId: number, message: any): Promise<any> {
+  public sendMessage(tabId: number, message: any, awaitReady: boolean = true): Promise<any> {
+    if (!awaitReady) {
+      return this._doSend(tabId, message);
+    }
+
     // Handle regular content script tabs
     if (this.readyTabs.has(tabId)) {
       return this._doSend(tabId, message);

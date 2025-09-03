@@ -29,7 +29,7 @@ export function createContentScriptApiWrapperForServiceWorker<
 
         try {
           // Try to send the message immediately
-          return await messenger.sendMessage(tabId, message);
+          return await messenger.sendMessage(tabId, message, false);
         } catch (error) {
           console.error(`Error sending message to tab ${tabId}: ${error}`);
           // Message failed, likely because content script isn't ready
