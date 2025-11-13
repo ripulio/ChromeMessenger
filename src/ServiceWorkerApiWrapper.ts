@@ -39,6 +39,14 @@ export function createServiceWorkerApiWrapperForContentScript<T>(): T {
     
     const response =  (await sendMessageWithRetry(message));
 
+    if (!response) {
+      const error = chrome.runtime.lastError;
+      if (error) {
+        console.log('[ServiceWorkerApiWrapper] chrome.runtime.lastError:', error);
+        throw new Error(error.message);
+      }
+      throw new Error("No response from service worker");
+    }
     if (response.error){
       // If error is already a stringified object, parse it
       let errorToThrow;
