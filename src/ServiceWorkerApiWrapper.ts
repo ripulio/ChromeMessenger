@@ -7,7 +7,50 @@ import {
 } from "./TypeUtilities";
 export type TransportType = "fromSandbox" | "fromContentScript";
 
+// Direct implementation for web context (no Chrome extension message passing)
+let directImplementation: Record<string, any> | null = null;
+
+/**
+ * Sets a direct implementation to use when running outside a Chrome extension context.
+ * When set, createServiceWorkerApiWrapperForContentScript will return this implementation
+ * directly instead of creating a message-passing proxy.
+ *
+ * @param impl The implementation object (typically implementing IBackgroundApi or similar)
+ */
+export function setDirectImplementation<T>(impl: T): void {
+  directImplementation = impl as Record<string, any>;
+}
+
+/**
+ * Clears any previously set direct implementation, reverting to normal behavior.
+ */
+export function clearDirectImplementation(): void {
+  directImplementation = null;
+}
+
+/**
+ * Checks if we're running in a Chrome extension context with message passing available.
+ * Note: chrome.runtime.id is only defined when running inside an extension
+ * (content script, service worker, popup, etc.)
+ * Regular web pages have chrome.runtime but NOT chrome.runtime.id.
+ *
+ * Also checks for chrome.storage.local since some dev environments may have
+ * chrome.runtime.id but not the storage API.
+ */
+export function isExtensionContext(): boolean {
+  return typeof chrome !== 'undefined'
+    && chrome.runtime !== undefined
+    && chrome.runtime.id !== undefined
+    && chrome.storage?.local !== undefined;
+}
+
 export function createServiceWorkerApiWrapperForContentScript<T>(): T {
+  // Web context with registered implementation: return direct impl (no message passing)
+  if (!isExtensionContext() && directImplementation) {
+    console.log('[ServiceWorkerApiWrapper] Using direct implementation (web context)');
+    return directImplementation as T;
+  }
+
   const messageHandler = async (
     functionPath: string[],
     ...args: any[]

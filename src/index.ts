@@ -1,4 +1,8 @@
-export { createContentScriptApiWrapperForServiceWorker as createContentScriptApiWrapper } from './ContentScriptApiWrapper';
+export {
+  createContentScriptApiWrapperForServiceWorker as createContentScriptApiWrapper,
+  setDirectContentScriptImplementation,
+  clearDirectContentScriptImplementation
+} from './ContentScriptApiWrapper';
 
 
 export { createServiceWorkerApiServer } from './ServiceWorkerApiServer';
@@ -6,7 +10,7 @@ export { createServiceWorkerApiServer } from './ServiceWorkerApiServer';
 /**
  * @deprecated These will be unified into a single API wrapper in v2.0.
  */
-export { createServiceWorkerApiWrapperForContentScript, createServiceWorkerApiWrapperForSandbox } from './ServiceWorkerApiWrapper';
+export { createServiceWorkerApiWrapperForContentScript, createServiceWorkerApiWrapperForSandbox, setDirectImplementation, clearDirectImplementation, isExtensionContext } from './ServiceWorkerApiWrapper';
 
 /**
  * @deprecated Use RefactoredContentScriptServer instead. This legacy proxy server will be removed in v2.0.
