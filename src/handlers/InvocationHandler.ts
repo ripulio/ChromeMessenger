@@ -1,23 +1,36 @@
-import { MessageHandler, ProxyFunctionCallMessage, ProxyMethodCallMessage } from '../MessageTypes.js';
-import { ObjectStore } from '../ObjectStore.js';
-import { Logger } from '../core/Logger.js';
-import { ServerError, createObjectNotFoundError, createFunctionNotFoundError, ErrorCodes } from '../core/ErrorHandling.js';
+import {
+  MessageHandler,
+  ProxyFunctionCallMessage,
+  ProxyMethodCallMessage,
+} from "../MessageTypes.js";
+import { ObjectStore } from "../ObjectStore.js";
+import { Logger } from "../core/Logger.js";
+import {
+  ServerError,
+  createObjectNotFoundError,
+  createFunctionNotFoundError,
+  ErrorCodes,
+} from "../core/ErrorHandling.js";
 
 export interface InvocationContext {
   objectStore: ObjectStore;
   globalContext: any;
   logger: Logger;
   eventTransformer?: (payload: any[]) => any[];
-  callbackInjector?: (payload: any[], sandboxTabId: number, port: MessagePort) => any[];
+  callbackInjector?: (
+    payload: any[],
+    sandboxTabId: number,
+    port: MessagePort,
+  ) => any[];
 }
 
-export class FunctionCallHandler implements MessageHandler<ProxyFunctionCallMessage> {
+class FunctionCallHandler implements MessageHandler<ProxyFunctionCallMessage> {
   constructor(private context: InvocationContext) {}
 
   async handle(message: ProxyFunctionCallMessage): Promise<any> {
-    this.context.logger.debug('Handling function call', {
+    this.context.logger.debug("Handling function call", {
       functionName: message.functionName,
-      payloadLength: message.payload?.length ?? 0
+      payloadLength: message.payload?.length ?? 0,
     });
 
     try {
@@ -26,29 +39,32 @@ export class FunctionCallHandler implements MessageHandler<ProxyFunctionCallMess
         throw createFunctionNotFoundError([message.functionName]);
       }
 
-      if (typeof targetFunction !== 'function') {
+      if (typeof targetFunction !== "function") {
         throw new ServerError(
           `Target is not a function: ${typeof targetFunction}`,
           ErrorCodes.FUNCTION_NOT_FOUND,
-          { 
+          {
             functionName: message.functionName,
-            actualType: typeof targetFunction
-          }
+            actualType: typeof targetFunction,
+          },
         );
       }
 
       const processedPayload = this.processPayload(message.payload);
-      const result = await this.executeFunction(targetFunction, processedPayload);
-      
-      this.context.logger.debug('Function call completed', {
+      const result = await this.executeFunction(
+        targetFunction,
+        processedPayload,
+      );
+
+      this.context.logger.debug("Function call completed", {
         functionName: message.functionName,
-        resultType: typeof result
+        resultType: typeof result,
       });
 
       return result;
     } catch (error) {
-      this.context.logger.error('Function call failed', error, {
-        functionName: message.functionName
+      this.context.logger.error("Function call failed", error, {
+        functionName: message.functionName,
       });
       throw error;
     }
@@ -65,39 +81,42 @@ export class FunctionCallHandler implements MessageHandler<ProxyFunctionCallMess
     return processedPayload;
   }
 
-  private async executeFunction(targetFunction: Function, payload: any[]): Promise<any> {
+  private async executeFunction(
+    targetFunction: Function,
+    payload: any[],
+  ): Promise<any> {
     try {
-      this.context.logger.debug('Executing function with payload', {
+      this.context.logger.debug("Executing function with payload", {
         functionName: targetFunction.name,
-        payloadLength: payload.length
+        payloadLength: payload.length,
       });
 
       const result = targetFunction(...payload);
-      
+
       // Handle both sync and async results
       return await Promise.resolve(result);
     } catch (error) {
       throw new ServerError(
         `Function execution failed: ${error instanceof Error ? error.message : String(error)}`,
         ErrorCodes.FUNCTION_EXECUTION_FAILED,
-        { 
+        {
           functionName: targetFunction.name,
-          payloadLength: payload.length
+          payloadLength: payload.length,
         },
-        error instanceof Error ? error : undefined
+        error instanceof Error ? error : undefined,
       );
     }
   }
 }
 
-export class MethodCallHandler implements MessageHandler<ProxyMethodCallMessage> {
+class MethodCallHandler implements MessageHandler<ProxyMethodCallMessage> {
   constructor(private context: InvocationContext) {}
 
   async handle(message: ProxyMethodCallMessage): Promise<any> {
-    this.context.logger.debug('Handling method call', {
+    this.context.logger.debug("Handling method call", {
       objectId: message.objectId,
       methodName: message.methodName,
-      payloadLength: message.payload?.length ?? 0
+      payloadLength: message.payload?.length ?? 0,
     });
 
     try {
@@ -111,39 +130,43 @@ export class MethodCallHandler implements MessageHandler<ProxyMethodCallMessage>
         throw new ServerError(
           `Method not found: ${message.methodName}`,
           ErrorCodes.FUNCTION_NOT_FOUND,
-          { 
+          {
             objectId: message.objectId,
-            methodName: message.methodName
-          }
+            methodName: message.methodName,
+          },
         );
       }
 
-      if (typeof targetMethod !== 'function') {
+      if (typeof targetMethod !== "function") {
         throw new ServerError(
           `Target is not a function: ${typeof targetMethod}`,
           ErrorCodes.FUNCTION_NOT_FOUND,
-          { 
+          {
             objectId: message.objectId,
             methodName: message.methodName,
-            actualType: typeof targetMethod
-          }
+            actualType: typeof targetMethod,
+          },
         );
       }
 
       const processedPayload = this.processPayload(message.payload);
-      const result = await this.executeMethod(targetObject, targetMethod, processedPayload);
-      
-      this.context.logger.debug('Method call completed', {
+      const result = await this.executeMethod(
+        targetObject,
+        targetMethod,
+        processedPayload,
+      );
+
+      this.context.logger.debug("Method call completed", {
         objectId: message.objectId,
         methodName: message.methodName,
-        resultType: typeof result
+        resultType: typeof result,
       });
 
       return result;
     } catch (error) {
-      this.context.logger.error('Method call failed', error, {
+      this.context.logger.error("Method call failed", error, {
         objectId: message.objectId,
-        methodName: message.methodName
+        methodName: message.methodName,
       });
       throw error;
     }
@@ -160,34 +183,40 @@ export class MethodCallHandler implements MessageHandler<ProxyMethodCallMessage>
     return processedPayload;
   }
 
-  private async executeMethod(targetObject: any, targetMethod: Function, payload: any[]): Promise<any> {
+  private async executeMethod(
+    targetObject: any,
+    targetMethod: Function,
+    payload: any[],
+  ): Promise<any> {
     try {
-      this.context.logger.debug('Executing method with payload', {
+      this.context.logger.debug("Executing method with payload", {
         methodName: targetMethod.name,
-        payloadLength: payload.length
+        payloadLength: payload.length,
       });
 
       // Bind the method to the target object to preserve 'this' context
       const result = targetMethod.apply(targetObject, payload);
-      
+
       // Handle both sync and async results
       return await Promise.resolve(result);
     } catch (error) {
       throw new ServerError(
         `Method execution failed: ${error instanceof Error ? error.message : String(error)}`,
         ErrorCodes.FUNCTION_EXECUTION_FAILED,
-        { 
+        {
           methodName: targetMethod.name,
-          payloadLength: payload.length
+          payloadLength: payload.length,
         },
-        error instanceof Error ? error : undefined
+        error instanceof Error ? error : undefined,
       );
     }
   }
 }
 
 // Legacy handler for backward compatibility
-export class InvocationHandler implements MessageHandler<ProxyFunctionCallMessage | ProxyMethodCallMessage> {
+export class InvocationHandler implements MessageHandler<
+  ProxyFunctionCallMessage | ProxyMethodCallMessage
+> {
   private functionCallHandler: FunctionCallHandler;
   private methodCallHandler: MethodCallHandler;
 
@@ -196,8 +225,10 @@ export class InvocationHandler implements MessageHandler<ProxyFunctionCallMessag
     this.methodCallHandler = new MethodCallHandler(context);
   }
 
-  async handle(message: ProxyFunctionCallMessage | ProxyMethodCallMessage): Promise<any> {
-    if (message.messageType === 'ProxyFunctionCall') {
+  async handle(
+    message: ProxyFunctionCallMessage | ProxyMethodCallMessage,
+  ): Promise<any> {
+    if (message.messageType === "ProxyFunctionCall") {
       return this.functionCallHandler.handle(message);
     } else {
       return this.methodCallHandler.handle(message);
@@ -206,7 +237,7 @@ export class InvocationHandler implements MessageHandler<ProxyFunctionCallMessag
 }
 
 // Event transformation utilities
-export interface EventTransformer {
+interface EventTransformer {
   transformPayload(payload: any[]): any[];
   isEvent(arg: any): boolean;
   createEvent(eventData: any): Event | null;
@@ -216,14 +247,16 @@ export class DefaultEventTransformer implements EventTransformer {
   constructor(private logger: Logger) {}
 
   transformPayload(payload: any[]): any[] {
-    return payload.map(arg => this.createEvent(arg) ?? arg);
+    return payload.map((arg) => this.createEvent(arg) ?? arg);
   }
 
   isEvent(arg: any): boolean {
-    return arg && 
-           typeof arg === 'object' && 
-           arg.eventType && 
-           typeof arg.eventType === 'string';
+    return (
+      arg &&
+      typeof arg === "object" &&
+      arg.eventType &&
+      typeof arg.eventType === "string"
+    );
   }
 
   createEvent(eventData: any): Event | null {
@@ -234,13 +267,15 @@ export class DefaultEventTransformer implements EventTransformer {
     try {
       const EventConstructor = this.getEventConstructor(eventData.eventType);
       if (!EventConstructor) {
-        this.logger.warn('Unknown event type', { eventType: eventData.eventType });
+        this.logger.warn("Unknown event type", {
+          eventType: eventData.eventType,
+        });
         return null;
       }
 
       return new EventConstructor(eventData.type, { ...eventData });
     } catch (error) {
-      this.logger.error('Failed to create event', error, { eventData });
+      this.logger.error("Failed to create event", error, { eventData });
       return null;
     }
   }
@@ -255,13 +290,15 @@ export class DefaultEventTransformer implements EventTransformer {
   }
 
   private isEventConstructor(value: any): value is EventConstructor {
-    return typeof value === 'function' && 
-           value.prototype && 
-           value.prototype instanceof Event;
+    return (
+      typeof value === "function" &&
+      value.prototype &&
+      value.prototype instanceof Event
+    );
   }
 }
 
 type EventConstructor = {
   new (type: string, eventInitDict?: any): Event;
   prototype: Event;
-}; 
+};

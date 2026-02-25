@@ -5,7 +5,6 @@ import {
   getCallbackRegistry,
   transformArg,
 } from "./TypeUtilities";
-export type TransportType = "fromSandbox" | "fromContentScript";
 
 // Direct implementation for web context (no Chrome extension message passing)
 let directImplementation: Record<string, any> | null = null;
@@ -38,16 +37,20 @@ export function clearDirectImplementation(): void {
  * chrome.runtime.id but not the storage API.
  */
 export function isExtensionContext(): boolean {
-  return typeof chrome !== 'undefined'
-    && chrome.runtime !== undefined
-    && chrome.runtime.id !== undefined
-    && chrome.storage?.local !== undefined;
+  return (
+    typeof chrome !== "undefined" &&
+    chrome.runtime !== undefined &&
+    chrome.runtime.id !== undefined &&
+    chrome.storage?.local !== undefined
+  );
 }
 
 export function createServiceWorkerApiWrapperForContentScript<T>(): T {
   // Web context with registered implementation: return direct impl (no message passing)
   if (!isExtensionContext() && directImplementation) {
-    console.log('[ServiceWorkerApiWrapper] Using direct implementation (web context)');
+    console.log(
+      "[ServiceWorkerApiWrapper] Using direct implementation (web context)",
+    );
     return directImplementation as T;
   }
 
@@ -60,7 +63,11 @@ export function createServiceWorkerApiWrapperForContentScript<T>(): T {
       payload: args,
     };
 
-    async function sendMessageWithRetry(message: any, maxRetries = 5, delay = 2000) {
+    async function sendMessageWithRetry(
+      message: any,
+      maxRetries = 5,
+      delay = 2000,
+    ) {
       for (let attempt = 1; attempt <= maxRetries; attempt++) {
         try {
           console.log(`Sending message:`, message);
@@ -73,29 +80,35 @@ export function createServiceWorkerApiWrapperForContentScript<T>(): T {
             throw error;
           }
           // Wait before retrying.
-          await new Promise(resolve => setTimeout(resolve, delay));
+          await new Promise((resolve) => setTimeout(resolve, delay));
           // Optionally, increase the delay for the next attempt.
           delay *= 2;
         }
       }
     }
-    
-    const response =  (await sendMessageWithRetry(message));
+
+    const response = await sendMessageWithRetry(message);
 
     if (!response) {
       const error = chrome.runtime.lastError;
       if (error) {
-        console.log('[ServiceWorkerApiWrapper] chrome.runtime.lastError:', error);
+        console.log(
+          "[ServiceWorkerApiWrapper] chrome.runtime.lastError:",
+          error,
+        );
         throw new Error(error.message);
       }
       throw new Error("No response from service worker");
     }
-    if (response.error){
+    if (response.error) {
       // If error is already a stringified object, parse it
       let errorToThrow;
       try {
         errorToThrow = JSON.parse(response.error);
-        console.log('[ServiceWorkerApiWrapper] Parsed error object:', errorToThrow);
+        console.log(
+          "[ServiceWorkerApiWrapper] Parsed error object:",
+          errorToThrow,
+        );
       } catch (e) {
         // Not JSON, create a new error
         errorToThrow = new Error(response.error);
@@ -107,8 +120,10 @@ export function createServiceWorkerApiWrapperForContentScript<T>(): T {
   return createObjectWrapper<T>(messageHandler, []) as T;
 }
 
-export function createServiceWorkerApiWrapperForSandbox<T>(port: MessagePort): T {
-    const messageHandler = (
+export function createServiceWorkerApiWrapperForSandbox<T>(
+  port: MessagePort,
+): T {
+  const messageHandler = (
     functionPath: string[],
     ...args: any[]
   ): Promise<any> => {
@@ -117,12 +132,12 @@ export function createServiceWorkerApiWrapperForSandbox<T>(port: MessagePort): T
       // transform args;
       const callbackRegistry = getCallbackRegistry();
       const transformedArgs = args.map((arg) =>
-        callbackRegistry ? transformArg(arg, callbackRegistry) : arg
+        callbackRegistry ? transformArg(arg, callbackRegistry) : arg,
       );
 
       const message = {
         messageType: "ContentScriptApiInvocation",
-        functionPath: functionPath.filter(o => o !== "then"),
+        functionPath: functionPath.filter((o) => o !== "then"),
         payload: transformedArgs,
         correlationId: correlationId,
       };

@@ -1,5 +1,5 @@
 // Dedicated serialization system
-export interface SerializationOptions {
+interface SerializationOptions {
   maxDepth?: number;
   includeNonEnumerable?: boolean;
   includeFunctions?: boolean;
@@ -15,14 +15,18 @@ export class Serializer {
       maxDepth: options.maxDepth ?? 3,
       includeNonEnumerable: options.includeNonEnumerable ?? false,
       includeFunctions: options.includeFunctions ?? false,
-      customSerializers: options.customSerializers ?? new Map()
+      customSerializers: options.customSerializers ?? new Map(),
     };
   }
 
   serialize(obj: any, depth = 0): any {
     // Handle primitives
     if (obj === null || obj === undefined) return obj;
-    if (typeof obj === 'string' || typeof obj === 'number' || typeof obj === 'boolean') {
+    if (
+      typeof obj === "string" ||
+      typeof obj === "number" ||
+      typeof obj === "boolean"
+    ) {
       return obj;
     }
 
@@ -40,7 +44,9 @@ export class Serializer {
 
     try {
       // Custom serializers
-      const customSerializer = this.options.customSerializers.get(obj.constructor.name);
+      const customSerializer = this.options.customSerializers.get(
+        obj.constructor.name,
+      );
       if (customSerializer) {
         return customSerializer(obj);
       }
@@ -54,19 +60,19 @@ export class Serializer {
 
       // Handle arrays
       if (Array.isArray(obj)) {
-        return obj.map(item => this.serialize(item, depth + 1));
+        return obj.map((item) => this.serialize(item, depth + 1));
       }
 
       // Handle objects
-      if (typeof obj === 'object') {
+      if (typeof obj === "object") {
         return this.serializeObject(obj, depth);
       }
 
       // Functions
-      if (typeof obj === 'function') {
-        return this.options.includeFunctions 
+      if (typeof obj === "function") {
+        return this.options.includeFunctions
           ? { __function: obj.toString() }
-          : { __function: '[Function]' };
+          : { __function: "[Function]" };
       }
 
       return obj;
@@ -86,7 +92,7 @@ export class Serializer {
         const value = obj[key];
         result[key] = this.serialize(value, depth + 1);
       } catch (error) {
-        result[key] = { __error: 'Failed to serialize property' };
+        result[key] = { __error: "Failed to serialize property" };
       }
     }
 
@@ -98,7 +104,7 @@ export class Serializer {
       __error: true,
       name: error.name,
       message: error.message,
-      stack: error.stack
+      stack: error.stack,
     };
   }
 
@@ -107,7 +113,8 @@ export class Serializer {
       __node: true,
       nodeType: node.nodeType,
       nodeName: node.nodeName,
-      textContent: node.nodeType === Node.TEXT_NODE ? node.textContent : undefined
+      textContent:
+        node.nodeType === Node.TEXT_NODE ? node.textContent : undefined,
     };
   }
 
@@ -115,12 +122,12 @@ export class Serializer {
     const result: any = {
       __event: true,
       type: event.type,
-      eventType: event.constructor.name
+      eventType: event.constructor.name,
     };
 
     // Copy enumerable properties
     for (const key in event) {
-      if (typeof (event as any)[key] !== 'function') {
+      if (typeof (event as any)[key] !== "function") {
         result[key] = this.serialize((event as any)[key], 1);
       }
     }
@@ -131,19 +138,29 @@ export class Serializer {
 
 // Utility functions
 export function shouldSerialize(obj: any): boolean {
-  if (typeof obj === 'number' || typeof obj === 'boolean' || 
-      typeof obj === 'string' || obj === null || obj === undefined) {
+  if (
+    typeof obj === "number" ||
+    typeof obj === "boolean" ||
+    typeof obj === "string" ||
+    obj === null ||
+    obj === undefined
+  ) {
     return false;
   }
   return hasPrototype(obj) || hasMethods(obj);
 }
 
 function hasPrototype(obj: any): boolean {
-  return Object.getPrototypeOf(obj) !== null && 
-         Object.getPrototypeOf(obj) !== Object.prototype;
+  return (
+    Object.getPrototypeOf(obj) !== null &&
+    Object.getPrototypeOf(obj) !== Object.prototype
+  );
 }
 
 function hasMethods(obj: any): boolean {
-  return Object.getOwnPropertyNames(Object.getPrototypeOf(obj))
-    .filter(prop => typeof obj[prop] === 'function').length > 0;
-} 
+  return (
+    Object.getOwnPropertyNames(Object.getPrototypeOf(obj)).filter(
+      (prop) => typeof obj[prop] === "function",
+    ).length > 0
+  );
+}
